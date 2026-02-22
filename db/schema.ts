@@ -1,14 +1,12 @@
 import {
-  pgTable,
+  sqliteTable,
   text,
   integer,
-  serial,
-  timestamp,
   index,
   uniqueIndex
-} from "drizzle-orm/pg-core";
+} from "drizzle-orm/sqlite-core";
 
-const userTable = pgTable("user", {
+const userTable = sqliteTable("user", {
   id: text("id").notNull().primaryKey(),
   githubEmail: text("github_email"),
   githubName: text("github_name"),
@@ -17,16 +15,16 @@ const userTable = pgTable("user", {
   email: text("email").unique()
 });
 
-const sessionTable = pgTable("session", {
+const sessionTable = sqliteTable("session", {
   id: text("id").notNull().primaryKey(),
-  expiresAt: timestamp("expires_at").notNull(),
+  expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
   userId: text("user_id").notNull().references(() => userTable.id)
 }, table => ({
   idx_session_userId: index("idx_session_userId").on(table.userId)
 }));
 
-const githubUserTokenTable = pgTable("github_user_token", {
-  id: serial("id").primaryKey(),
+const githubUserTokenTable = sqliteTable("github_user_token", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   ciphertext: text("ciphertext").notNull(),
   iv: text("iv").notNull(),
   userId: text("user_id").notNull().references(() => userTable.id)
@@ -34,24 +32,24 @@ const githubUserTokenTable = pgTable("github_user_token", {
   idx_github_user_token_userId: uniqueIndex("idx_github_user_token_userId").on(table.userId)
 }));
 
-const githubInstallationTokenTable = pgTable("github_installation_token", {
-  id: serial("id").primaryKey(),
+const githubInstallationTokenTable = sqliteTable("github_installation_token", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   ciphertext: text("ciphertext").notNull(),
   iv: text("iv").notNull(),
   installationId: integer("installation_id").notNull(),
-  expiresAt: timestamp("expires_at").notNull()
+  expiresAt: integer("expires_at", { mode: "timestamp" }).notNull()
 }, table => ({
   idx_github_installation_token_installationId: index("idx_github_installation_token_installationId").on(table.installationId)
 }));
 
-const emailLoginTokenTable = pgTable("email_login_token", {
+const emailLoginTokenTable = sqliteTable("email_login_token", {
   tokenHash: text("token_hash").notNull().unique(),
   email: text("email").notNull(),
-  expiresAt: timestamp("expires_at").notNull()
+  expiresAt: integer("expires_at", { mode: "timestamp" }).notNull()
 });
 
-const collaboratorTable = pgTable("collaborator", {
-  id: serial("id").primaryKey(),
+const collaboratorTable = sqliteTable("collaborator", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   type: text("type").notNull(),
   installationId: integer("installation_id").notNull(),
   ownerId: integer("owner_id").notNull(),
@@ -67,8 +65,8 @@ const collaboratorTable = pgTable("collaborator", {
   idx_collaborator_userId: index("idx_collaborator_userId").on(table.userId)
 }));
 
-const configTable = pgTable("config", {
-  id: serial("id").primaryKey(),
+const configTable = sqliteTable("config", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   owner: text("owner").notNull(),
   repo: text("repo").notNull(),
   branch: text("branch").notNull(),
@@ -79,8 +77,8 @@ const configTable = pgTable("config", {
   idx_config_owner_repo_branch: uniqueIndex("idx_config_owner_repo_branch").on(table.owner, table.repo, table.branch)
 }));
 
-const cacheFileTable = pgTable("cache_file", {
-  id: serial("id").primaryKey(),
+const cacheFileTable = sqliteTable("cache_file", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   context: text("context").notNull().default('collection'),
   owner: text("owner").notNull(),
   repo: text("repo").notNull(),
@@ -94,19 +92,19 @@ const cacheFileTable = pgTable("cache_file", {
   size: integer("size"),
   downloadUrl: text("download_url"),
   commitSha: text('commit_sha'),
-  commitTimestamp: timestamp('commit_timestamp'),
-  lastUpdated: timestamp("last_updated").notNull()
+  commitTimestamp: integer('commit_timestamp', { mode: "timestamp" }),
+  lastUpdated: integer("last_updated", { mode: "timestamp" }).notNull()
 }, table => ({
   idx_cache_file_owner_repo_branch_parentPath: index("idx_cache_file_owner_repo_branch_parentPath").on(table.owner, table.repo, table.branch, table.parentPath),
   idx_cache_file_owner_repo_branch_path: uniqueIndex("idx_cache_file_owner_repo_branch_path").on(table.owner, table.repo, table.branch, table.path)
 }));
 
-const cachePermissionTable = pgTable("cache_permission", {
-  id: serial("id").primaryKey(),
+const cachePermissionTable = sqliteTable("cache_permission", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   githubId: integer("github_id").notNull(),
   owner: text("owner").notNull(),
   repo: text("repo").notNull(),
-  lastUpdated: timestamp("last_updated").notNull()
+  lastUpdated: integer("last_updated", { mode: "timestamp" }).notNull()
 }, table => ({
   idx_cache_permission_githubId_owner_repo: uniqueIndex("idx_cache_permission_githubId_owner_repo").on(table.githubId, table.owner, table.repo)
 }));
