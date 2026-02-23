@@ -7,13 +7,8 @@ compatibility_flags = ["nodejs_compat"]
 directory = ".open-next/assets"
 binding = "ASSETS"
 
-# Custom domain — requires leme.work zone in Cloudflare
-routes = [
-  { pattern = "cms.leme.work", custom_domain = true }
-]
-
 [vars]
-BASE_URL = "https://cms.leme.work"
+BASE_URL = "https://pages.leme.work"
 PAGES_DB_PASSWORD = "8608bd1da44e2a330989eb8185f94a33"
 PAGESCMS_CRYPTO_KEY = "8608bd1da44e2a330989eb8185f94a33"
 GITHUB_APP_ID = "2854209"
