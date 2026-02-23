@@ -1,14 +1,12 @@
 name = "pages-cms"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
-
 pages_build_output_dir = ".open-next"
 
-# D1 Database — update database_id after: npx wrangler d1 create pages-cms
+[vars]
+BASE_URL = "https://cms.leme.work"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "pages-cms"
-database_id = "TODO_SET_YOUR_D1_DATABASE_ID"
-
-[vars]
-BASE_URL = "https://pages.leme.work"
+database_id = "a7bcfcae-4822-418d-937f-e150b910621e"
