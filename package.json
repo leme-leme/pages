@@ -91,7 +91,6 @@
     "uuid": "^11.1.0",
     "yaml": "^2.4.2",
     "zod": "^3.23.8",
-    "@cloudflare/next-on-pages": "^1",
     "@dnd-kit/core": "^6.0.0"
   },
   "devDependencies": {
@@ -109,6 +108,7 @@
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.3",
     "typescript": "^5.4.5",
-    "better-sqlite3": "^11.0.0"
+    "better-sqlite3": "^11.0.0",
+    "@opennextjs/cloudflare": "^1"
   }
 }
