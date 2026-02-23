@@ -10,7 +10,7 @@ db.delete(cacheFileTable)
     console.log('✅ Permission cache cleared successfully');
     process.exit(0);
   })
-  .catch((error) => {
+  .catch((error: unknown) => {
     console.error('❌ Error clearing cache:', error);
     process.exit(1);
   });
