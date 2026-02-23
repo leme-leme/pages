@@ -4,13 +4,13 @@
 
 import { cache } from "react";
 import { Session, User, Lucia } from "lucia";
-import { DrizzlePostgreSQLAdapter, PostgreSQLSessionTable, PostgreSQLUserTable } from "@lucia-auth/adapter-drizzle";
+import { DrizzleSQLiteAdapter, SQLiteSessionTable, SQLiteUserTable } from "@lucia-auth/adapter-drizzle";
 import { db } from "@/db";
 import { userTable, sessionTable } from "@/db/schema";
 import { GitHub } from "arctic";
 import { cookies } from "next/headers";
 
-const adapter = new DrizzlePostgreSQLAdapter(db, sessionTable as unknown as PostgreSQLSessionTable, userTable as unknown as PostgreSQLUserTable);
+const adapter = new DrizzleSQLiteAdapter(db, sessionTable as unknown as SQLiteSessionTable, userTable as unknown as SQLiteUserTable);
 
 export const lucia = new Lucia(adapter, {
 	sessionCookie: {
@@ -46,7 +46,19 @@ export interface DatabaseUserAttributes {
 	email: string;
 }
 
-export const github = new GitHub(process.env.GITHUB_APP_CLIENT_ID!, process.env.GITHUB_APP_CLIENT_SECRET!);
+let _github: GitHub | null = null;
+export function getGitHub() {
+	if (!_github) {
+		_github = new GitHub(process.env.GITHUB_APP_CLIENT_ID!, process.env.GITHUB_APP_CLIENT_SECRET!);
+	}
+	return _github;
+}
+// Keep backward-compatible export
+export const github = new Proxy({} as GitHub, {
+	get(_, prop) {
+		return (getGitHub() as any)[prop];
+	}
+});
 
 export const getAuth = cache(
 	async (): Promise<{ user: User; session: Session } | { user: null; session: null }> => {

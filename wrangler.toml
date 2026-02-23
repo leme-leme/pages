@@ -3,18 +3,16 @@ main = ".open-next/worker.js"
 compatibility_date = "2024-12-30"
 compatibility_flags = ["nodejs_compat"]
 
-[assets]
-directory = ".open-next/assets"
-binding = "ASSETS"
-
 routes = [
   { pattern = "pages.leme.work", custom_domain = true }
 ]
 
+[assets]
+directory = ".open-next/assets"
+binding = "ASSETS"
+
 [vars]
 BASE_URL = "https://pages.leme.work"
-PAGES_DB_PASSWORD = "8608bd1da44e2a330989eb8185f94a33"
-PAGESCMS_CRYPTO_KEY = "8608bd1da44e2a330989eb8185f94a33"
 GITHUB_APP_ID = "2854209"
 GITHUB_APP_NAME = "pages-cms-for-leme"
 GITHUB_APP_CLIENT_ID = "Iv23liuSmLyqKe6Fvr3c"

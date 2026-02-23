@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getAuth, github, lucia } from "@/lib/auth";
+import { getAuth, lucia } from "@/lib/auth";
 import { cookies } from "next/headers";
 import { OAuth2RequestError } from "arctic";
 import { generateIdFromEntropySize } from "lucia";
@@ -10,9 +10,9 @@ import { eq } from "drizzle-orm";
 
 /**
  * Handles GitHub OAuth authentication.
- * 
+ *
  * GET /api/auth/github
- * 
+ *
  * Requires GitHub OAuth code and state.
  */
 
@@ -31,14 +31,34 @@ export async function GET(request: Request): Promise<Response> {
 	}
 
 	try {
-    const token = await github.validateAuthorizationCode(code);
+    // Manual token exchange — the oslo/arctic library's request gets blocked
+    // by Cloudflare WAF ("Request forbidden by administrative rules") because
+    // it uses User-Agent: oslo and x-www-form-urlencoded encoding.
+    const tokenResponse = await fetch("https://github.com/login/oauth/access_token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+      },
+      body: JSON.stringify({
+        client_id: process.env.GITHUB_APP_CLIENT_ID,
+        client_secret: process.env.GITHUB_APP_CLIENT_SECRET,
+        code,
+      }),
+    });
+    const tokenData = await tokenResponse.json() as { access_token?: string; error?: string };
+    if (!tokenData.access_token) {
+      throw new Error(`GitHub token error: ${tokenData.error || "no access_token"}`);
+    }
+    const token = { accessToken: tokenData.access_token };
+
 		const githubUserResponse = await fetch("https://api.github.com/user", {
 			headers: {
 				Authorization: `Bearer ${token.accessToken}`
 			}
 		});
 		const githubUser: GitHubUser = await githubUserResponse.json();
-    
+
     const { ciphertext, iv } = await encrypt(token.accessToken);
 
 		const existingUser = await db.query.userTable.findFirst({
@@ -86,10 +106,9 @@ export async function GET(request: Request): Promise<Response> {
 				Location: "/"
 			}
 		});
-	} catch (e) {		
+	} catch (e) {
 		console.error("GitHub auth error:", e);
 		if (e instanceof OAuth2RequestError) {
-			// invalid code
 			return new Response(null, { status: 400 });
 		}
 		return new Response(null, { status: 500 });
