@@ -7,6 +7,10 @@ compatibility_flags = ["nodejs_compat"]
 directory = ".open-next/assets"
 binding = "ASSETS"
 
+routes = [
+  { pattern = "pages.leme.work", custom_domain = true }
+]
+
 [vars]
 BASE_URL = "https://pages.leme.work"
 PAGES_DB_PASSWORD = "8608bd1da44e2a330989eb8185f94a33"
