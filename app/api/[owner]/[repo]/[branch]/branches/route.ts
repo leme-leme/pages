@@ -2,6 +2,8 @@ import { createOctokitInstance } from "@/lib/utils/octokit";
 import { getAuth } from "@/lib/auth";
 import { getToken } from "@/lib/token";
 
+export const runtime = 'edge';
+
 /**
  * Creates a new branch in a GitHub repository.
  * 

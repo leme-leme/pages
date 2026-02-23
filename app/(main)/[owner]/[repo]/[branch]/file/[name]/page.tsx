@@ -5,6 +5,8 @@ import { useConfig } from "@/contexts/config-context";
 import { EntryEditor } from "@/components/entry/entry-editor";
 import { getSchemaByName } from "@/lib/schema";
 
+export const runtime = 'edge';
+
 export default function Page({
   params
 }: {

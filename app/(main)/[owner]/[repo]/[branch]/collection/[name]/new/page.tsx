@@ -3,6 +3,8 @@
 import { useSearchParams } from "next/navigation";
 import { EntryEditor } from "@/components/entry/entry-editor";
 
+export const runtime = 'edge';
+
 export default function Page({
   params
 }: {

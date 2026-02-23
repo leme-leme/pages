@@ -5,6 +5,8 @@ import { getAuth } from "@/lib/auth";
 import { getToken } from "@/lib/token";
 import { getMediaCache, checkRepoAccess } from "@/lib/githubCache";
 
+export const runtime = 'edge';
+
 // Add docs
 
 /**

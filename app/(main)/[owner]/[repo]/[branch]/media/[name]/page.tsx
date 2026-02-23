@@ -4,6 +4,8 @@ import { useSearchParams } from "next/navigation";
 import { useConfig } from "@/contexts/config-context";
 import { MediaView} from "@/components/media/media-view";
 
+export const runtime = 'edge';
+
 export default function Page({
   params
 }: {

@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { useConfig } from "@/contexts/config-context";
 import { Message } from "@/components/message";
 
+export const runtime = 'edge';
+
 export default function Page() {
   const { config } = useConfig();
   const router = useRouter();

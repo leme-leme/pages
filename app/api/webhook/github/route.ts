@@ -1,5 +1,4 @@
 import { headers } from "next/headers";
-import crypto from "crypto";
 import { db } from "@/db";
 import { collaboratorTable, githubInstallationTokenTable } from "@/db/schema";
 import { eq, inArray } from "drizzle-orm";
@@ -11,6 +10,8 @@ import {
   updateFileCacheOwner
 } from "@/lib/githubCache";
 import { getInstallationToken } from "@/lib/token";
+
+export const runtime = 'edge';
 
 /**
  * Handles GitHub webhooks:
@@ -27,8 +28,18 @@ export async function POST(request: Request) {
   try {
     const signature = request.headers.get("X-Hub-Signature-256");
     const body = await request.text();
-    const hmac = crypto.createHmac("sha256", process.env.GITHUB_APP_WEBHOOK_SECRET!);
-    const digest = `sha256=${hmac.update(body).digest("hex")}`;
+
+    // Web Crypto API HMAC verification (Edge-compatible)
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      "raw",
+      encoder.encode(process.env.GITHUB_APP_WEBHOOK_SECRET!),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"]
+    );
+    const sig = await crypto.subtle.sign("HMAC", key, encoder.encode(body));
+    const digest = `sha256=${Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, "0")).join("")}`;
 
     if (signature !== digest) throw new Error("Invalid signature");
 

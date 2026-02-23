@@ -8,6 +8,8 @@ import { db } from "@/db";
 import { userTable, githubUserTokenTable } from "@/db/schema";
 import { eq } from "drizzle-orm";
 
+export const runtime = 'edge';
+
 /**
  * Handles GitHub OAuth authentication.
  * 

@@ -6,6 +6,8 @@ import { getAuth } from "@/lib/auth";
 import { getToken } from "@/lib/token";
 import { updateFileCache } from "@/lib/githubCache";
 
+export const runtime = 'edge';
+
 /**
  * Renames a file in a GitHub repository.
  * 

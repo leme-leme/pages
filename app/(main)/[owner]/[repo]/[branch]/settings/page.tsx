@@ -3,6 +3,8 @@
 import { EntryEditor } from "@/components/entry/entry-editor";
 import { useConfig } from "@/contexts/config-context";
 
+export const runtime = 'edge';
+
 export default function Page() {
   const { setConfig } = useConfig();
 

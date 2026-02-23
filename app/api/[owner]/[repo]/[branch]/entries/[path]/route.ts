@@ -8,6 +8,8 @@ import { getFileExtension, normalizePath } from "@/lib/utils/file";
 import { getAuth } from "@/lib/auth";
 import { getToken } from "@/lib/token";
 
+export const runtime = 'edge';
+
 /**
  * Fetches and parses individual file contents from GitHub repositories
  * (usually for editing).

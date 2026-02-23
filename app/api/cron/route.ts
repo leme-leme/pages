@@ -3,6 +3,8 @@ import { db } from "@/db";
 import { cacheFileTable, cachePermissionTable } from "@/db/schema";
 import { lt, sql } from "drizzle-orm";
 
+export const runtime = 'edge';
+
 export async function GET(request: Request) {
   if (request.headers.get("authorization") !== `Bearer ${process.env.CRON_SECRET}`) {
     return new NextResponse("Unauthorized", { status: 401 });

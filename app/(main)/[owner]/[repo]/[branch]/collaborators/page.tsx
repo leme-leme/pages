@@ -3,6 +3,8 @@
 import { Collaborators } from "@/components/collaborators";
 import { useConfig } from "@/contexts/config-context";
 
+export const runtime = 'edge';
+
 export default function Page() {
   const { config } = useConfig();
   if (!config) throw new Error(`Configuration not found.`);

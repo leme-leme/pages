@@ -1,11 +1,13 @@
 name = "pages"
-main = ".open-next/worker.js"
-compatibility_date = "2024-12-30"
+compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 
-[assets]
-directory = ".open-next/assets"
-binding = "ASSETS"
+pages_build_output_dir = ".vercel/output/static"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "pages-cms"
+database_id = "a7bcfcae-4822-418d-937f-e150b910621e"
 
 [vars]
 BASE_URL = "https://cms.leme.work"
@@ -14,8 +16,3 @@ PAGESCMS_CRYPTO_KEY = "8608bd1da44e2a330989eb8185f94a33"
 GITHUB_APP_ID = "2854209"
 GITHUB_APP_NAME = "pages-cms-for-leme"
 GITHUB_APP_CLIENT_ID = "Iv23liuSmLyqKe6Fvr3c"
-
-[[d1_databases]]
-binding = "DB"
-database_name = "pages-cms"
-database_id = "a7bcfcae-4822-418d-937f-e150b910621e"

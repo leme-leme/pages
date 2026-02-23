@@ -7,7 +7,8 @@ import { eq, and, inArray, gt, count, min } from "drizzle-orm";
 import { cacheFileTable, cachePermissionTable } from "@/db/schema";
 import { createOctokitInstance } from "@/lib/utils/octokit";
 import { getParentPath } from "@/lib/utils/file";
-import path from "path";
+// Edge-compatible path.basename replacement
+const basename = (p: string) => p.split('/').pop() || p;
 
 type FileChange = {
   path: string;
@@ -100,7 +101,7 @@ const updateParentFolderCachesBatch = async (
           dirsToInsertData.set(dirPath, {
             context: 'collection', // Default, will be updated
             owner: lowerOwner, repo: lowerRepo, branch,
-            path: dirPath, parentPath: parentDir, name: path.basename(dirPath),
+            path: dirPath, parentPath: parentDir, name: basename(dirPath),
             type: 'dir', lastUpdated: now,
             content: null, sha: null, size: null, downloadUrl: null, commitSha: null, commitTimestamp: null
           });
@@ -254,7 +255,7 @@ const updateParentFolderCache = async (
         }
         dirsToInsertData.set(dirPath, {
           context: context, owner: lowerOwner, repo: lowerRepo, branch,
-          path: dirPath, parentPath: parentDir, name: path.basename(dirPath), type: 'dir', lastUpdated: now,
+          path: dirPath, parentPath: parentDir, name: basename(dirPath), type: 'dir', lastUpdated: now,
           content: null, sha: null, size: null, downloadUrl: null, commitSha: null, commitTimestamp: null
         });
       }
@@ -450,7 +451,7 @@ const updateMultipleFilesCache = async (
 
         const entryData = {
           context, owner: lowerOwner, repo: lowerRepo, branch,
-          path: file.path, parentPath, name: path.basename(file.path),
+          path: file.path, parentPath, name: basename(file.path),
           type: 'file' as 'file' | 'dir',
           content: context === 'collection' ? fileData.text : null,
           sha: fileData.oid, size: fileData.byteSize, downloadUrl: null,
@@ -512,7 +513,7 @@ const updateFileCache = async (
       const now = new Date();
       const entryData = {
         context, owner: lowerOwner, repo: lowerRepo, branch,
-        path: operation.path, parentPath, name: path.basename(operation.path),
+        path: operation.path, parentPath, name: basename(operation.path),
         type: 'file' as 'file' | 'dir',
         content: context === 'collection' ? operation.content : null,
         sha: operation.sha, size: operation.size, downloadUrl: operation.downloadUrl,
@@ -539,7 +540,7 @@ const updateFileCache = async (
 
       const renameNow = new Date();
       const newParentPath = getParentPath(operation.newPath);
-      const newName = path.basename(operation.newPath);
+      const newName = basename(operation.newPath);
 
       // Update the existing entry to the new path/name
       const updateResult = await db.update(cacheFileTable)
