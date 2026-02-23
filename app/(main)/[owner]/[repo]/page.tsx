@@ -5,8 +5,6 @@ import { useRouter } from "next/navigation";
 import { useRepo } from "@/contexts/repo-context";
 import { useUser } from "@/contexts/user-context";
 
-export const runtime = 'edge';
-
 export default function Page() {
   const { owner, repo, defaultBranch } = useRepo();
   const router = useRouter();

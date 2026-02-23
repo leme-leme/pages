@@ -4,8 +4,6 @@ import { Inter } from "next/font/google";
 import { cn } from "@/lib/utils";
 import "./globals.css";
 
-export const runtime = 'edge';
-
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
@@ -14,9 +12,6 @@ export const metadata: Metadata = {
     default: "Pages CMS",
   },
   description: "The No-Hassle CMS for GitHub",
-  icons: {
-    icon: "/icon.svg",
-  },
 };
 
 export default async function RootLayout({

@@ -23,8 +23,6 @@ import { Input } from "@/components/ui/input";
 import { ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export const runtime = 'edge';
-
 export default async function Page() {
 	const { user } = await getAuth();
 	if (!user) throw new Error("User not found");

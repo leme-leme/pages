@@ -94,10 +94,10 @@
     "uuid": "^11.1.0",
     "yaml": "^2.4.2",
     "zod": "^3.23.8",
-    "@dnd-kit/core": "^6.0.0",
-    "@cloudflare/next-on-pages": "^1"
+    "@dnd-kit/core": "^6.0.0"
   },
   "devDependencies": {
+    "@opennextjs/cloudflare": "~1.15",
     "wrangler": "^4",
     "@next/bundle-analyzer": "^15.2.4",
     "@types/lodash.merge": "^4.6.9",

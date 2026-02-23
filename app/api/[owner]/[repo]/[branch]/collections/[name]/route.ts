@@ -10,8 +10,6 @@ import { getAuth } from "@/lib/auth";
 import { getToken } from "@/lib/token";
 import { getCollectionCache, checkRepoAccess } from "@/lib/githubCache";
 
-export const runtime = 'edge';
-
 /**
  * Fetches and parses collection contents from GitHub repositories
  * (for collection views and searches)

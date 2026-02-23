@@ -11,8 +11,6 @@ import { SubmitButton } from "@/components/submit-button";
 import { MainRootLayout } from "./main-root-layout";
 import { Github } from "lucide-react";
 
-export const runtime = 'edge';
-
 export default function Page() {
 	const [defaultAccount, setDefaultAccount] = useState<any>(null);
   const { user } = useUser();

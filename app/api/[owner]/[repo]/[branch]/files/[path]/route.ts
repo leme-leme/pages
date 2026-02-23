@@ -11,8 +11,6 @@ import { getToken } from "@/lib/token";
 import { updateFileCache } from "@/lib/githubCache";
 import mergeWith from "lodash.mergewith";
 
-export const runtime = 'edge';
-
 /**
  * Create, update and delete individual files in a GitHub repository.
  * 

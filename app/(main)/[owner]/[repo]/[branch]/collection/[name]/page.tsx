@@ -6,8 +6,6 @@ import { useConfig } from "@/contexts/config-context";
 import { getSchemaByName } from "@/lib/schema";
 import { CollectionView } from "@/components/collection/collection-view";
 
-export const runtime = 'edge';
-
 export default function Page({
   params
 }: {

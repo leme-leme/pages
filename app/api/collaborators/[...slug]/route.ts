@@ -6,8 +6,6 @@ import { db } from "@/db";
 import { collaboratorTable } from "@/db/schema";
 import { getInstallations, getInstallationRepos } from "@/lib/githubApp";
 
-export const runtime = 'edge';
-
 /**
  * Fetches collaborators for a repository.
  * 

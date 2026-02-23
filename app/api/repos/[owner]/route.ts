@@ -7,7 +7,6 @@ import { db } from "@/db";
 import { and, eq } from "drizzle-orm";
 import { collaboratorTable } from "@/db/schema";
 
-export const runtime = 'edge';
 export const dynamic = "force-dynamic";
 
 /**

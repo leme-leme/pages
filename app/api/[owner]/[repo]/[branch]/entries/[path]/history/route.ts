@@ -6,8 +6,6 @@ import { getFileExtension, normalizePath } from "@/lib/utils/file";
 import { getAuth } from "@/lib/auth";
 import { getToken } from "@/lib/token";
 
-export const runtime = 'edge';
-
 /**
  * Fetches the history of a file from GitHub repositories.
  * 

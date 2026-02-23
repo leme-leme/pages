@@ -3,8 +3,6 @@ import { getAuth } from "@/lib/auth";
 import { getTokenData } from "@/lib/actions/auth";
 import { SignInFromInvite } from "@/components/sign-in-from-invite";
 
-export const runtime = 'edge';
-
 export default async function Page({ 
   params,
   searchParams 
