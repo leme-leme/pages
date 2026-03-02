@@ -3,23 +3,40 @@
  * info in the DB (e.g. GitHub tokens).
  * 
  * Requires a CRYPTO_KEY environment variable to be set.
+ * Accepts base64 (32 bytes), hex (64 chars), or any string (will be hashed to 256 bits).
  */
 
-// Import the key from the CRYPTO_KEY environment variable
-const importKey = async (base64Key: string) => {
-  const rawKey = Uint8Array.from(atob(base64Key), c => c.charCodeAt(0));
-  return crypto.subtle.importKey(
-    'raw',
-    rawKey,
-    { name: 'AES-GCM', length: 256 },
-    true,
-    ['encrypt', 'decrypt']
-  );
+const deriveKey = async (input: string): Promise<CryptoKey> => {
+  let rawKey: Uint8Array;
+
+  // Try base64 first (44 chars ending in = for 32 bytes)
+  if (/^[A-Za-z0-9+/]{42,44}={0,2}$/.test(input)) {
+    try {
+      rawKey = Uint8Array.from(atob(input), c => c.charCodeAt(0));
+      if (rawKey.length === 32) {
+        return crypto.subtle.importKey('raw', rawKey, { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+      }
+    } catch {}
+  }
+
+  // Try hex (64 hex chars = 32 bytes)
+  if (/^[0-9a-fA-F]{64}$/.test(input)) {
+    rawKey = new Uint8Array(32);
+    for (let i = 0; i < 64; i += 2) {
+      rawKey[i / 2] = parseInt(input.slice(i, i + 2), 16);
+    }
+    return crypto.subtle.importKey('raw', rawKey, { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+  }
+
+  // Fallback: SHA-256 hash of the input string to get 32 bytes
+  const encoded = new TextEncoder().encode(input);
+  const hash = await crypto.subtle.digest('SHA-256', encoded);
+  return crypto.subtle.importKey('raw', hash, { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
 };
 
 const encrypt = async (text: string) => {
   if (process.env.CRYPTO_KEY === undefined) throw new Error('Crypto key is not set.');
-  const key = await importKey(process.env.CRYPTO_KEY);
+  const key = await deriveKey(process.env.CRYPTO_KEY);
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const encodedText = new TextEncoder().encode(text);
 
@@ -37,7 +54,7 @@ const encrypt = async (text: string) => {
 
 const decrypt = async (ciphertext: string, iv: string) => {
   if (process.env.CRYPTO_KEY === undefined) throw new Error('Crypto key is not set.');
-  const key = await importKey(process.env.CRYPTO_KEY);
+  const key = await deriveKey(process.env.CRYPTO_KEY);
   const ivArray = Uint8Array.from(atob(iv), c => c.charCodeAt(0));
   const encryptedDataArray = Uint8Array.from(atob(ciphertext), c => c.charCodeAt(0));
 
