@@ -315,6 +315,12 @@ const ContentObjectSchema = z.object({
     { message: "'fields' must be an array of field definitions." }
   ).optional(),
   list: ListSchema.optional(),
+  preview_path: z.string({
+    message: "'preview_path' must be a string (e.g. '/blog/{slug}')."
+  }).optional().nullable(),
+  preview_url: z.string({
+    message: "'preview_url' must be a string (e.g. 'https://example.com/blog/{slug}')."
+  }).optional().nullable(),
 }).strict();
 
 // Main schema with media and content
@@ -348,6 +354,9 @@ const ConfigSchema = z.object({
       message: "'settings' must be a boolean or an object."
     }),
   ]).optional(),
+  site_url: z.string({
+    message: "'site_url' must be a string (e.g. 'https://example.com')."
+  }).optional().nullable(),
 }).strict().nullable();
 
 export { ConfigSchema };
