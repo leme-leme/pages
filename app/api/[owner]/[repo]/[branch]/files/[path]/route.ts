@@ -9,6 +9,8 @@ import { getFileExtension, getFileName, normalizePath, serializedTypes, getParen
 import { getAuth } from "@/lib/auth";
 import { getToken } from "@/lib/token";
 import { updateFileCache } from "@/lib/githubCache";
+import { isS3Configured, S3_THRESHOLD_BYTES, s3Upload, s3Key, s3PublicUrl } from "@/lib/storage/s3";
+import { isD1Configured, d1InsertMedia } from "@/lib/storage/d1";
 import mergeWith from "lodash.mergewith";
 
 /**
@@ -144,14 +146,14 @@ export async function POST(
           }
         }
         break;
-      case "media":
+      case "media": {
         if (!data.name) throw new Error(`"name" is required for media.`);
 
         schema = getSchemaByName(config?.object, data.name, "media");
         if (!schema) throw new Error(`Media schema not found for ${data.name}.`);
 
         if (!normalizedPath.startsWith(schema.input)) throw new Error(`Invalid path "${params.path}" for media "${data.name}".`);
-        
+
         if (getFileName(normalizedPath) === ".gitkeep") {
           // Folder creation
           contentBase64 = "";
@@ -161,9 +163,63 @@ export async function POST(
             !schema.extensions.includes(getFileExtension(normalizedPath))
           ) throw new Error(`Invalid extension "${getFileExtension(normalizedPath)}" for media.`);
 
+          // Route large files to S3 if configured
+          const fileBuffer = Buffer.from(data.content, "base64");
+          if (isS3Configured() && fileBuffer.length > S3_THRESHOLD_BYTES) {
+            const baseUrl = process.env.BASE_URL ?? "https://pages.leme.work";
+            const ext = getFileExtension(normalizedPath);
+            const mimeTypes: Record<string, string> = {
+              jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png",
+              gif: "image/gif", webp: "image/webp", svg: "image/svg+xml",
+              mp4: "video/mp4", webm: "video/webm", mov: "video/quicktime",
+              pdf: "application/pdf",
+            };
+            const contentType = mimeTypes[ext] ?? "application/octet-stream";
+
+            const { key, size } = await s3Upload(
+              params.owner, params.repo, params.branch,
+              normalizedPath, fileBuffer, contentType
+            );
+            const url = s3PublicUrl(baseUrl, key);
+
+            // Record in D1
+            if (isD1Configured()) {
+              await d1InsertMedia({
+                id: key,
+                owner: params.owner,
+                repo: params.repo,
+                branch: params.branch,
+                media_name: data.name,
+                filename: getFileName(normalizedPath),
+                path: normalizedPath,
+                size,
+                content_type: contentType,
+                provider: "s3",
+                url,
+                sha: null,
+              });
+            }
+
+            return Response.json({
+              status: "success",
+              message: `File "${normalizedPath}" saved to S3 storage (${(size / 1024 / 1024).toFixed(1)} MB).`,
+              data: {
+                type: "file",
+                sha: null,
+                name: getFileName(normalizedPath),
+                path: normalizedPath,
+                extension: ext,
+                size,
+                url,
+                provider: "s3",
+              }
+            });
+          }
+
           contentBase64 = data.content;
         }
         break;
+      }
       case "settings":
         if (normalizedPath !== ".pages.yml") throw new Error(`Invalid path "${params.path}" for settings.`);
 
@@ -194,6 +250,30 @@ export async function POST(
     }
     
     if (response?.data.content && response?.data.commit) {
+      // Record GitHub-stored media in D1 registry
+      if (data.type === "media" && isD1Configured() && response.data.content.path) {
+        const ext = getFileExtension(response.data.content.name ?? "");
+        const mimeTypes: Record<string, string> = {
+          jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png",
+          gif: "image/gif", webp: "image/webp", svg: "image/svg+xml",
+          mp4: "video/mp4", webm: "video/webm", pdf: "application/pdf",
+        };
+        await d1InsertMedia({
+          id: `${params.owner}/${params.repo}/${params.branch}/${response.data.content.path}`,
+          owner: params.owner,
+          repo: params.repo,
+          branch: params.branch,
+          media_name: data.name,
+          filename: response.data.content.name ?? "",
+          path: response.data.content.path,
+          size: response.data.content.size ?? 0,
+          content_type: mimeTypes[ext] ?? "application/octet-stream",
+          provider: "github",
+          url: response.data.content.download_url ?? "",
+          sha: response.data.content.sha ?? null,
+        }).catch(() => {}); // Non-fatal: D1 is best-effort metadata
+      }
+
       // If the file is successfully saved, update the cache
       await updateFileCache(
         data.type === 'content' ? 'collection' : 'media',
