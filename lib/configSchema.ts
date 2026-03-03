@@ -321,6 +321,11 @@ const ContentObjectSchema = z.object({
   preview_url: z.string({
     message: "'preview_url' must be a string (e.g. 'https://example.com/blog/{slug}')."
   }).optional().nullable(),
+  locales: z.array(z.string({
+    message: "Entries in the 'locales' array must be strings."
+  }), {
+    message: "'locales' must be an array of locale strings (e.g. [nl, en])."
+  }).optional().nullable(),
 }).strict();
 
 // Main schema with media and content
