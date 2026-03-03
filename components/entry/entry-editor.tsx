@@ -382,8 +382,10 @@ export function EntryEditor({
         }
         previewUrlTemplate={
           schema?.preview_url ||
-          (config.object?.site_url && schema?.preview_path
-            ? `${config.object.site_url.replace(/\/$/, "")}${schema.preview_path}`
+          (config.object?.site_url
+            ? schema?.preview_path
+              ? `${config.object.site_url.replace(/\/$/, "")}${schema.preview_path}`
+              : config.object.site_url.replace(/\/$/, "")
             : undefined)
         }
       />
