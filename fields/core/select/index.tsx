@@ -25,7 +25,7 @@ const schema = (field: Field) => {
     if (field.required) zodSchema = zodSchema.min(1, "This field is required");
   }
 
-  if (field.options?.multiple) {
+  if (field.options?.multiple ?? (field as any).multiple) {
     zodSchema = z.array(zodSchema);
 
     if (field.required) zodSchema = zodSchema.min(1, "This field is required");

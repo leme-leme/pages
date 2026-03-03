@@ -5,10 +5,11 @@ import { EditComponent } from "./edit-component";
 const schema = (field: Field) => {
   let zodSchema: z.ZodTypeAny = z.coerce.string();
 
-  if (field.options?.multiple) zodSchema = z.array(zodSchema);
-  
+  const isMultiple = !!(field.options?.multiple ?? (field as any).multiple);
+  if (isMultiple) zodSchema = z.array(zodSchema);
+
   if (!field.required) zodSchema = zodSchema.optional();
-  
+
   return zodSchema;
 };
 
