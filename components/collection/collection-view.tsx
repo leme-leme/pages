@@ -176,6 +176,20 @@ export function CollectionView({
     [viewFields]
   );
 
+  // The configured sort field name if it exists as a real field in the collection schema
+  // When present, reorder saves by updating each file's frontmatter sort field value (1, 2, 3...)
+  // When absent, reorder saves to _order.json
+  const sortField = schema.view?.default?.sort;
+  const hasFrontmatterSort = useMemo(() =>
+    !!sortField && viewFields.some((vf: any) => vf.field.name === sortField),
+    [sortField, viewFields]
+  );
+
+  // Collections that can be reordered:
+  // - No date field and no explicit sort field → _order.json approach
+  // - Has a configured sort field that exists in the schema → frontmatter approach
+  const canReorder = (!hasDateField && !sortField) || hasFrontmatterSort;
+
   const dndSensors = useSensors(
     useSensor(PointerSensor),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
@@ -477,7 +491,7 @@ export function CollectionView({
 
   // Load _order.json and apply sort order to fetched data
   const applyOrder = useCallback(async (fetchedData: Record<string, any>[], collectionPath: string) => {
-    if (!config || hasDateField || schema.view?.default?.sort) return fetchedData;
+    if (!config || hasDateField || hasFrontmatterSort) return fetchedData;
     try {
       const orderPath = `${collectionPath.replace(/\/$/, "")}/_order.json`;
       const res = await fetch(`/api/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/files/${encodeURIComponent(orderPath)}`);
@@ -497,7 +511,7 @@ export function CollectionView({
       // _order.json not found or invalid — ignore
     }
     return fetchedData;
-  }, [config, hasDateField]);
+  }, [config, hasDateField, hasFrontmatterSort]);
 
   useEffect(() => {
     const currentPath = schema.view?.layout === 'tree'
@@ -527,19 +541,55 @@ export function CollectionView({
 
   const handleSaveOrder = useCallback(async () => {
     if (!config) return;
-    const collectionPath = path || schema.path;
-    const orderPath = `${collectionPath.replace(/\/$/, "")}/_order.json`;
     setIsSavingOrder(true);
     try {
-      const res = await fetch(`/api/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/files/${encodeURIComponent(orderPath)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "raw", content: reorderData.map((d: any) => d.name), sha: orderSha ?? undefined }),
-      });
-      const json = await res.json();
-      if (json.status !== "success") throw new Error(json.message);
-      setOrderSha(json.data.sha ?? null);
-      setData(reorderData);
+      if (hasFrontmatterSort && sortField) {
+        // Update each file's sort field in frontmatter to reflect new position (1-based)
+        const fileItems = reorderData.filter((d: any) => d.type !== 'dir');
+        const toUpdate = fileItems
+          .map((item: any, idx: number) => {
+            const newVal = idx + 1;
+            const currentVal = safeAccess(item.fields, sortField);
+            return String(currentVal) === String(newVal) ? null : { item, newVal };
+          })
+          .filter(Boolean);
+
+        await Promise.all(toUpdate.map(async ({ item, newVal }: any) => {
+          const res = await fetch(
+            `/api/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/files/${encodeURIComponent(item.path)}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                type: 'content',
+                name,
+                sha: item.sha,
+                content: { ...item.fields, [sortField]: newVal },
+              }),
+            }
+          );
+          const json = await res.json();
+          if (json.status !== 'success') throw new Error(json.message);
+        }));
+
+        // Update local state with new field values
+        setData(reorderData.map((item: any, idx: number) =>
+          item.type === 'dir' ? item : { ...item, fields: { ...item.fields, [sortField]: idx + 1 } }
+        ));
+      } else {
+        // Write _order.json with filename order
+        const collectionPath = path || schema.path;
+        const orderPath = `${collectionPath.replace(/\/$/, "")}/_order.json`;
+        const res = await fetch(`/api/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/files/${encodeURIComponent(orderPath)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "raw", content: reorderData.map((d: any) => d.name), sha: orderSha ?? undefined }),
+        });
+        const json = await res.json();
+        if (json.status !== "success") throw new Error(json.message);
+        setOrderSha(json.data.sha ?? null);
+        setData(reorderData);
+      }
       setIsReordering(false);
       toast.success("Order saved.");
     } catch (err: any) {
@@ -547,7 +597,7 @@ export function CollectionView({
     } finally {
       setIsSavingOrder(false);
     }
-  }, [config, path, schema.path, reorderData, orderSha]);
+  }, [config, path, schema.path, hasFrontmatterSort, sortField, reorderData, orderSha, name]);
 
   const handleNavigate = (newPath: string) => {
     // setPath(newPath);
@@ -681,7 +731,7 @@ export function CollectionView({
               </Button>
             </FolderCreate>
           )}
-          {!hasDateField && !schema.view?.default?.sort && schema.view?.layout !== 'tree' && !isLoading && (
+          {canReorder && schema.view?.layout !== 'tree' && !isLoading && (
             isReordering ? (
               <>
                 <Button
