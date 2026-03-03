@@ -73,6 +73,8 @@ import {
   Dot,
   Eye,
   EyeOff,
+  RefreshCw,
+  ExternalLink,
 } from "lucide-react";
 import { toast } from "sonner";
 import { interpolate } from "@/lib/schema";
@@ -580,6 +582,7 @@ const EntryForm = ({
   path,
   filePath,
   options,
+  previewUrlTemplate,
 }: {
   title: string;
   navigateBack?: string;
@@ -590,9 +593,11 @@ const EntryForm = ({
   path?: string;
   filePath?: React.ReactNode;
   options: React.ReactNode;
+  previewUrlTemplate?: string;
 }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  const [iframeKey, setIframeKey] = useState(0);
 
   const zodSchema = useMemo(() => {
     return generateZodSchema(fields);
@@ -641,6 +646,15 @@ const EntryForm = ({
     return "markdown";
   }, [previewFieldName, fields]);
 
+  // Watch all values for URL template substitution
+  const allValues = useWatch({ control: form.control });
+  const resolvedPreviewUrl = useMemo(() => {
+    if (!previewUrlTemplate) return null;
+    return interpolate(previewUrlTemplate, allValues as Record<string, any>);
+  }, [previewUrlTemplate, allValues]);
+
+  const hasPreview = !!(resolvedPreviewUrl || previewFieldName);
+
   const renderFields = useCallback((
     fields: Field[],
     parentName?: string
@@ -673,7 +687,7 @@ const EntryForm = ({
     <Form {...form}>
       <form onSubmit={form.handleSubmit(handleSubmit, handleError)}>
         <div className="max-w-screen-xl mx-auto flex w-full gap-x-8">
-          <div className="flex-1 w-0">
+          <div className="flex-1 w-0 min-w-0">
             <header className="flex items-center mb-6">
               {navigateBack &&
                 <Link
@@ -686,7 +700,7 @@ const EntryForm = ({
 
               <h1 className="font-semibold text-lg md:text-2xl truncate">{title}</h1>
             </header>
-            
+
             <div onSubmit={form.handleSubmit(handleSubmit)} className="grid items-start gap-6">
               {filePath &&
                 <div className="space-y-2 overflow-hidden">
@@ -699,7 +713,7 @@ const EntryForm = ({
               {renderFields(fields)}
             </div>
 
-            {showPreview && previewFieldName && (
+            {showPreview && !resolvedPreviewUrl && previewFieldName && (
               <div className="mt-8 border-t pt-6">
                 <div className="flex items-center gap-2 mb-4">
                   <Eye className="h-4 w-4 text-muted-foreground" />
@@ -714,7 +728,40 @@ const EntryForm = ({
             )}
           </div>
 
-          <div className="hidden lg:block w-64">
+          {showPreview && resolvedPreviewUrl && (
+            <div className="hidden lg:flex flex-col flex-1 w-0 min-w-[360px]">
+              <div className="flex items-center gap-2 sticky top-0 bg-background py-1 mb-2 z-10">
+                <span className="text-sm font-medium flex-1 truncate text-muted-foreground">{resolvedPreviewUrl}</span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={() => setIframeKey(k => k + 1)}
+                  title="Refresh preview"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                </Button>
+                <a
+                  href={resolvedPreviewUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={cn(buttonVariants({ variant: "ghost", size: "icon-xs" }))}
+                  title="Open in new tab"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </a>
+              </div>
+              <iframe
+                key={iframeKey}
+                src={resolvedPreviewUrl}
+                className="w-full flex-1 rounded-lg border bg-white"
+                style={{ height: "calc(100vh - 80px)" }}
+                sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
+              />
+            </div>
+          )}
+
+          <div className="hidden lg:block w-64 shrink-0">
             <div className="flex flex-col gap-y-4 sticky top-0">
               <div className="flex gap-x-2">
                 <Button type="submit" className="w-full" disabled={isSubmitting || !isDirty}>
@@ -723,7 +770,7 @@ const EntryForm = ({
                 </Button>
                 {options ? options : null}
               </div>
-              {previewFieldName && (
+              {hasPreview && (
                 <Button
                   type="button"
                   variant={showPreview ? "secondary" : "outline"}

@@ -380,6 +380,7 @@ export function EntryEditor({
             </Button>
           </FileOptions>
         }
+        previewUrlTemplate={schema?.preview_url}
       />
   );
 };
