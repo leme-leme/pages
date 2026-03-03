@@ -22,7 +22,7 @@ const RepoSidebar = ({
 
   return (
     <>
-      <header className="border-b flex items-center px-3 py-2">
+      <header className="border-b flex items-center px-3 h-14 shrink-0">
         <Link className={buttonVariants({ variant: "ghost", size: "xs" })} href="/" prefetch={true}>
           <ArrowLeft className="h-4 w-4 mr-1.5" />
           All projects
