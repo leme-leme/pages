@@ -191,6 +191,8 @@ export async function POST(
                 sha: key,          // use S3 key as the sha-equivalent identifier
                 size,
                 downloadUrl: url,
+                provider: "s3",
+                s3Key: key,
                 commit: { sha: "", timestamp: Date.now() },
               }
             );

@@ -22,6 +22,8 @@ type FileOperation = {
   content?: string;
   size?: number;
   downloadUrl?: string;
+  provider?: string;
+  s3Key?: string | null;
   commit?: {
     sha: string;
     timestamp: number;
@@ -102,7 +104,8 @@ const updateParentFolderCachesBatch = async (
             owner: lowerOwner, repo: lowerRepo, branch,
             path: dirPath, parentPath: parentDir, name: path.basename(dirPath),
             type: 'dir', lastUpdated: now,
-            content: null, sha: null, size: null, downloadUrl: null, commitSha: null, commitTimestamp: null
+            content: null, sha: null, size: null, downloadUrl: null, commitSha: null, commitTimestamp: null,
+            provider: "github" as const, s3Key: null
           });
         }
       }
@@ -255,7 +258,8 @@ const updateParentFolderCache = async (
         dirsToInsertData.set(dirPath, {
           context: context, owner: lowerOwner, repo: lowerRepo, branch,
           path: dirPath, parentPath: parentDir, name: path.basename(dirPath), type: 'dir', lastUpdated: now,
-          content: null, sha: null, size: null, downloadUrl: null, commitSha: null, commitTimestamp: null
+          content: null, sha: null, size: null, downloadUrl: null, commitSha: null, commitTimestamp: null,
+          provider: "github" as const, s3Key: null
         });
       }
     }
@@ -455,7 +459,8 @@ const updateMultipleFilesCache = async (
           content: context === 'collection' ? fileData.text : null,
           sha: fileData.oid, size: fileData.byteSize, downloadUrl: null,
           lastUpdated: now,
-          commitSha: commit?.sha ?? null, commitTimestamp: commit?.timestamp ? new Date(commit.timestamp) : null
+          commitSha: commit?.sha ?? null, commitTimestamp: commit?.timestamp ? new Date(commit.timestamp) : null,
+          provider: "github" as const, s3Key: null
         };
 
         upsertPromises.push(
@@ -517,7 +522,9 @@ const updateFileCache = async (
         content: context === 'collection' ? operation.content : null,
         sha: operation.sha, size: operation.size, downloadUrl: operation.downloadUrl,
         lastUpdated: now,
-        commitSha: operation.commit?.sha ?? null, commitTimestamp: operation.commit?.timestamp ? new Date(operation.commit.timestamp) : null
+        commitSha: operation.commit?.sha ?? null, commitTimestamp: operation.commit?.timestamp ? new Date(operation.commit.timestamp) : null,
+        provider: operation.provider ?? "github",
+        s3Key: operation.s3Key ?? null
       };
 
       // Upsert the file entry
@@ -708,7 +715,8 @@ const getCollectionCache = async (
           lastUpdated: new Date(),
           // Need commit info if possible, but GraphQL tree doesn't provide it easily
           commitSha: null,
-          commitTimestamp: null
+          commitTimestamp: null,
+          provider: "github" as const, s3Key: null
         })))
         .returning();
     }
@@ -782,7 +790,9 @@ const getCollectionCache = async (
               downloadUrl: null,
               lastUpdated: new Date(),
               commitSha: null,
-              commitTimestamp: null
+              commitTimestamp: null,
+              provider: "github" as const,
+              s3Key: null
             });
           }
         }
@@ -872,7 +882,9 @@ const getMediaCache = async (
       downloadUrl: entry.download_url || null,
       lastUpdated: new Date(),
       commitSha: null, // REST API doesn't provide last commit info here
-      commitTimestamp: null
+      commitTimestamp: null,
+      provider: "github" as const,
+      s3Key: null
     }));
 
     if (!nocache && githubEntries.length > 0) {
