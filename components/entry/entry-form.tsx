@@ -78,7 +78,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { interpolate } from "@/lib/schema";
-import { EntryPreview } from "./entry-preview";
 
 const SortableItem = ({
   id,
@@ -617,43 +616,12 @@ const EntryForm = ({
     control: form.control
   });
 
-  // Watch for previewable content (body field or first text/code/rich-text field)
-  const previewFieldName = useMemo(() => {
-    const previewableTypes = new Set(["text", "rich-text", "code"]);
-    const findPreviewField = (fields: Field[], prefix = ""): string | null => {
-      for (const f of fields) {
-        if (previewableTypes.has(f.type)) return prefix ? `${prefix}.${f.name}` : f.name;
-        if (f.name === "body") return prefix ? `${prefix}.body` : "body";
-      }
-      return null;
-    };
-    return findPreviewField(fields) ?? null;
-  }, [fields]);
-
-  const previewRawValue = useWatch({ control: form.control, name: previewFieldName ?? "__none__" });
-
-  const previewContent = useMemo(() => {
-    if (!previewRawValue) return "";
-    // TipTap stores HTML; code fields store raw string
-    if (typeof previewRawValue === "string") return previewRawValue;
-    return "";
-  }, [previewRawValue]);
-
-  const previewFormat = useMemo((): "markdown" | "html" => {
-    if (!previewFieldName) return "markdown";
-    const field = fields.find(f => f.name === previewFieldName);
-    if (field?.type === "rich-text") return "html";
-    return "markdown";
-  }, [previewFieldName, fields]);
-
   // Watch all values for URL template substitution
   const allValues = useWatch({ control: form.control });
   const resolvedPreviewUrl = useMemo(() => {
     if (!previewUrlTemplate) return null;
     return interpolate(previewUrlTemplate, allValues as Record<string, any>);
   }, [previewUrlTemplate, allValues]);
-
-  const hasPreview = !!(resolvedPreviewUrl || previewFieldName);
 
   const renderFields = useCallback((
     fields: Field[],
@@ -713,19 +681,6 @@ const EntryForm = ({
               {renderFields(fields)}
             </div>
 
-            {showPreview && !resolvedPreviewUrl && previewFieldName && (
-              <div className="mt-8 border-t pt-6">
-                <div className="flex items-center gap-2 mb-4">
-                  <Eye className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm font-medium text-muted-foreground">Preview</span>
-                </div>
-                <EntryPreview
-                  content={previewContent}
-                  format={previewFormat}
-                  className="rounded-lg border bg-background p-6"
-                />
-              </div>
-            )}
           </div>
 
           {showPreview && resolvedPreviewUrl && (
@@ -770,7 +725,7 @@ const EntryForm = ({
                 </Button>
                 {options ? options : null}
               </div>
-              {hasPreview && (
+              {resolvedPreviewUrl && (
                 <Button
                   type="button"
                   variant={showPreview ? "secondary" : "outline"}
