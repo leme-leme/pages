@@ -9,8 +9,7 @@ import { getFileExtension, getFileName, normalizePath, serializedTypes, getParen
 import { getAuth } from "@/lib/auth";
 import { getToken } from "@/lib/token";
 import { updateFileCache } from "@/lib/githubCache";
-import { isS3Configured, S3_THRESHOLD_BYTES, s3Upload, s3Key, s3PublicUrl } from "@/lib/storage/s3";
-import { isD1Configured, d1InsertMedia } from "@/lib/storage/d1";
+import { isS3Configured, S3_THRESHOLD_BYTES, s3Upload, s3PublicUrl } from "@/lib/storage/s3";
 import mergeWith from "lodash.mergewith";
 
 /**
@@ -182,23 +181,19 @@ export async function POST(
             );
             const url = s3PublicUrl(baseUrl, key);
 
-            // Record in D1
-            if (isD1Configured()) {
-              await d1InsertMedia({
-                id: key,
-                owner: params.owner,
-                repo: params.repo,
-                branch: params.branch,
-                media_name: data.name,
-                filename: getFileName(normalizedPath),
+            // Record in Postgres cache
+            await updateFileCache(
+              "media",
+              params.owner, params.repo, params.branch,
+              {
+                type: "add",
                 path: normalizedPath,
+                sha: key,          // use S3 key as the sha-equivalent identifier
                 size,
-                content_type: contentType,
-                provider: "s3",
-                url,
-                sha: null,
-              });
-            }
+                downloadUrl: url,
+                commit: { sha: "", timestamp: Date.now() },
+              }
+            );
 
             return Response.json({
               status: "success",
@@ -250,30 +245,6 @@ export async function POST(
     }
     
     if (response?.data.content && response?.data.commit) {
-      // Record GitHub-stored media in D1 registry
-      if (data.type === "media" && isD1Configured() && response.data.content.path) {
-        const ext = getFileExtension(response.data.content.name ?? "");
-        const mimeTypes: Record<string, string> = {
-          jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png",
-          gif: "image/gif", webp: "image/webp", svg: "image/svg+xml",
-          mp4: "video/mp4", webm: "video/webm", pdf: "application/pdf",
-        };
-        await d1InsertMedia({
-          id: `${params.owner}/${params.repo}/${params.branch}/${response.data.content.path}`,
-          owner: params.owner,
-          repo: params.repo,
-          branch: params.branch,
-          media_name: data.name,
-          filename: response.data.content.name ?? "",
-          path: response.data.content.path,
-          size: response.data.content.size ?? 0,
-          content_type: mimeTypes[ext] ?? "application/octet-stream",
-          provider: "github",
-          url: response.data.content.download_url ?? "",
-          sha: response.data.content.sha ?? null,
-        }).catch(() => {}); // Non-fatal: D1 is best-effort metadata
-      }
-
       // If the file is successfully saved, update the cache
       await updateFileCache(
         data.type === 'content' ? 'collection' : 'media',

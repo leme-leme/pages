@@ -747,6 +747,17 @@ const EntryForm = ({
                     Save
                     {isSubmitting && (<Loader className="ml-2 h-4 w-4 animate-spin" />)}
                   </Button>
+                  {resolvedPreviewUrl && (
+                    <a
+                      href={resolvedPreviewUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className={cn(buttonVariants({ variant: "outline", size: "icon" }), "shrink-0")}
+                      title="Open live page"
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                    </a>
+                  )}
                   {options ? options : null}
                 </div>
                 {resolvedPreviewUrl && (
@@ -776,6 +787,17 @@ const EntryForm = ({
                 Save
                 {isSubmitting && (<Loader className="ml-2 h-4 w-4 animate-spin" />)}
               </Button>
+              {resolvedPreviewUrl && (
+                <a
+                  href={resolvedPreviewUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={cn(buttonVariants({ variant: "outline", size: "icon" }))}
+                  title="Open live page"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                </a>
+              )}
               {options ? options : null}
             </div>
           </div>
