@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { RepoSidebar } from "@/components/repo/repo-sidebar";
-import { Button } from "@/components/ui/button";
-import { Menu, X } from "lucide-react";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { ExternalLink, Menu, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useConfig } from "@/contexts/config-context";
 import { useRepo } from "@/contexts/repo-context";
@@ -81,6 +81,17 @@ export function RepoLayout({
                 : <Menu className="h-4 w-4" />
               }
             </Button>
+            {config?.object?.site_url && (
+              <a
+                href={config.object.site_url}
+                target="_blank"
+                rel="noreferrer"
+                className={cn(buttonVariants({ variant: "outline", size: "icon" }), "ml-auto")}
+                aria-label="Visit site"
+              >
+                <ExternalLink className="h-4 w-4" />
+              </a>
+            )}
           </div>
 
           <div className="flex-1 overflow-auto scrollbar p-4 md:p-6">
