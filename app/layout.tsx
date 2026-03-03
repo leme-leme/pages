@@ -12,6 +12,11 @@ export const metadata: Metadata = {
     default: "Pages CMS",
   },
   description: "The No-Hassle CMS for GitHub",
+  appleWebApp: {
+    capable: true,
+    title: "Pages CMS",
+    statusBarStyle: "default",
+  },
 };
 
 export default async function RootLayout({
