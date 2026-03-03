@@ -142,7 +142,11 @@ const EditComponent = forwardRef((props: any, ref: any) => {
 
   const [selectedOptions, setSelectedOptions] = useState(() => {
     if (field.options?.multiple) {
-      const values = Array.isArray(value) ? value : [];
+      const values = Array.isArray(value)
+        ? value
+        : typeof value === "string" && value
+          ? value.split(",").map((s: string) => s.trim()).filter(Boolean)
+          : [];
       return values.map((val: any) => ({ value: val, label: val }));
     }
     if (!value) return null;
