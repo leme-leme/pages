@@ -75,7 +75,7 @@ const ImageTeaser = ({ file, config, media, onRemove }: {
   )
 };
 
-const SortableItem = ({ id, file, config, media, onRemove }: { 
+const SortableItem = ({ id, file, config, media, onRemove }: {
   id: string;
   file: string;
   config: any;
@@ -100,9 +100,9 @@ const SortableItem = ({ id, file, config, media, onRemove }: {
   };
 
   return (
-    <div ref={setNodeRef} style={style}>
-      <div {...attributes} {...listeners}>
-        <Thumbnail name={media} path={file} className="rounded-md w-28 h-28"/>
+    <div ref={setNodeRef} style={style} className="aspect-square">
+      <div {...attributes} {...listeners} className="w-full h-full cursor-grab active:cursor-grabbing">
+        <Thumbnail name={media} path={file} className="rounded-md w-full h-full object-cover"/>
       </div>
       <ImageTeaser file={file} config={config} onRemove={onRemove} media={media} />
     </div>
@@ -244,18 +244,18 @@ const EditComponent = forwardRef((props: any, ref: React.Ref<HTMLInputElement>) 
         <div className="space-y-2">
           {files.length > 0 && (
             isMultiple ? (
-              <div className="flex flex-wrap gap-2">
-                <DndContext 
-                  sensors={sensors}
-                  collisionDetection={closestCenter}
-                  onDragEnd={handleDragEnd}
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleDragEnd}
+              >
+                <SortableContext
+                  items={files.map(f => f.id)}
+                  strategy={rectSortingStrategy}
                 >
-                  <SortableContext 
-                    items={files.map(f => f.id)}
-                    strategy={rectSortingStrategy}
-                  >
+                  <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(7rem, 1fr))" }}>
                     {files.map((file) => (
-                      <SortableItem 
+                      <SortableItem
                         key={file.id}
                         id={file.id}
                         file={file.path}
@@ -264,9 +264,9 @@ const EditComponent = forwardRef((props: any, ref: React.Ref<HTMLInputElement>) 
                         onRemove={() => handleRemove(file.id)}
                       />
                     ))}
-                  </SortableContext>
-                </DndContext>
-              </div>
+                  </div>
+                </SortableContext>
+              </DndContext>
             ) : (
               <div className="aspect-square w-28 relative">
                 <Thumbnail name={mediaConfig.name} path={files[0].path} className="rounded-md w-28 h-28"/>
@@ -279,7 +279,7 @@ const EditComponent = forwardRef((props: any, ref: React.Ref<HTMLInputElement>) 
               <MediaUpload.Trigger>
                 <Button type="button" size="sm" variant="outline" className="gap-2">
                   <Upload className="h-3.5 w-3.5"/>
-                  Upload
+                  {isMultiple && files.length > 0 ? "Add more" : "Upload"}
                 </Button>
               </MediaUpload.Trigger>
               <TooltipProvider>
@@ -287,7 +287,7 @@ const EditComponent = forwardRef((props: any, ref: React.Ref<HTMLInputElement>) 
                   <MediaDialog
                     media={mediaConfig.name}
                     initialPath={rootPath}
-                    maxSelected={remainingSlots}
+                    maxSelected={remainingSlots === Infinity ? undefined : remainingSlots}
                     extensions={allowedExtensions}
                     onSubmit={handleSelected}
                   >
@@ -298,7 +298,7 @@ const EditComponent = forwardRef((props: any, ref: React.Ref<HTMLInputElement>) 
                     </TooltipTrigger>
                   </MediaDialog>
                   <TooltipContent>
-                    Select from media
+                    {isMultiple ? "Select from media library" : "Select from media"}
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
