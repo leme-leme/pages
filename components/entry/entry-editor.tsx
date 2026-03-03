@@ -13,6 +13,7 @@ import {
   normalizePath
 } from "@/lib/utils/file";
 import { EntryForm } from "./entry-form";
+import { LocaleProvider } from "@/contexts/locale-context";
 import { EmptyCreate } from "@/components/empty-create";
 import { FileOptions } from "@/components/file/file-options";
 import { Message } from "@/components/message";
@@ -359,7 +360,9 @@ export function EntryEditor({
     }
   }
   
-  return (
+  const locales = schema?.locales?.length ? schema.locales : null;
+
+  const form = (
     isLoading
       ? loadingSkeleton
       : <EntryForm
@@ -404,4 +407,8 @@ export function EntryEditor({
         }
       />
   );
+
+  return locales
+    ? <LocaleProvider locales={locales}>{form}</LocaleProvider>
+    : form;
 };

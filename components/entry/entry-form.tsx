@@ -78,6 +78,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { interpolate } from "@/lib/schema";
+import { useLocale } from "@/contexts/locale-context";
 
 const SortableItem = ({
   id,
@@ -597,6 +598,7 @@ const EntryForm = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [iframeKey, setIframeKey] = useState(0);
+  const locale = useLocale();
 
   const zodSchema = useMemo(() => {
     return generateZodSchema(fields);
@@ -706,6 +708,25 @@ const EntryForm = ({
                   </Link>
                 }
                 <h1 className="font-semibold text-lg md:text-2xl truncate">{title}</h1>
+                {locale && (
+                  <div className="ml-auto flex items-center gap-1 shrink-0">
+                    {locale.locales.map((l) => (
+                      <button
+                        key={l}
+                        type="button"
+                        onClick={() => locale.setActiveLocale(l)}
+                        className={cn(
+                          "px-3 py-1 text-sm rounded-md transition-colors",
+                          locale.activeLocale === l
+                            ? "bg-primary text-primary-foreground"
+                            : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                        )}
+                      >
+                        {locale.languageName(l)}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </header>
 
               <div onSubmit={form.handleSubmit(handleSubmit)} className="grid items-start gap-6">
