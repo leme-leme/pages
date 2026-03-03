@@ -103,7 +103,7 @@ function GalleryCard({ item, primaryField, imageField, mediaName, mediaConfig, c
           className="block w-full h-full"
         >
           {resolvedImage
-            ? <Thumbnail name={mediaName} path={resolvedImage} className="w-full h-full object-cover" />
+            ? <Thumbnail name={mediaName ?? ""} path={resolvedImage} className="w-full h-full object-cover" />
             : <div className="w-full h-full flex items-center justify-center text-muted-foreground text-xs">No image</div>
           }
         </Link>
