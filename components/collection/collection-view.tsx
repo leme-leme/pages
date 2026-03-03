@@ -36,6 +36,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
+  ArrowUpRight,
   CornerLeftUp,
   Ellipsis,
   FolderPlus,
@@ -64,11 +65,12 @@ import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
 import { CSS } from "@dnd-kit/utilities";
 
 // Gallery card for gallery layout
-function GalleryCard({ item, primaryField, imageField, mediaName, config, name, onDelete, onRename }: {
+function GalleryCard({ item, primaryField, imageField, mediaName, mediaConfig, config, name, onDelete, onRename }: {
   item: Record<string, any>;
   primaryField: string;
   imageField: string | null;
   mediaName: string | undefined;
+  mediaConfig: any;
   config: any;
   name: string;
   onDelete: (path: string) => void;
@@ -76,20 +78,53 @@ function GalleryCard({ item, primaryField, imageField, mediaName, config, name, 
 }) {
   const label = String(safeAccess(item.fields, primaryField) ?? item.name);
   const imagePath = imageField ? safeAccess(item.fields, imageField) : null;
-  const resolvedImage = Array.isArray(imagePath) ? imagePath[0] : imagePath;
+  const resolvedImage = Array.isArray(imagePath) ? imagePath[0] : (imagePath ?? null);
+
+  // Convert stored output path → repo input path for GitHub link
+  const repoPath = useMemo(() => {
+    if (!resolvedImage || !mediaConfig) return resolvedImage?.replace(/^\//, '') ?? resolvedImage;
+    const outputPrefix = (mediaConfig.output ?? "").replace(/\/$/, "");
+    const inputPrefix = (mediaConfig.input ?? "").replace(/\/$/, "");
+    const normalizedFile = resolvedImage.startsWith("/") ? resolvedImage : "/" + resolvedImage;
+    const normalizedOutput = outputPrefix.startsWith("/") ? outputPrefix : "/" + outputPrefix;
+    if (normalizedOutput && (normalizedFile === normalizedOutput || normalizedFile.startsWith(normalizedOutput + "/"))) {
+      const rest = normalizedFile.slice(normalizedOutput.length);
+      return (inputPrefix + rest).replace(/^\//, "");
+    }
+    return resolvedImage.replace(/^\//, "");
+  }, [resolvedImage, mediaConfig]);
 
   return (
     <div className="group relative border rounded-md overflow-hidden bg-background flex flex-col">
-      <Link
-        href={`/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/collection/${encodeURIComponent(name)}/edit/${encodeURIComponent(item.path)}`}
-        prefetch={true}
-        className="block aspect-[4/3] bg-muted overflow-hidden"
-      >
-        {resolvedImage
-          ? <Thumbnail name={mediaName} path={resolvedImage} className="w-full h-full object-cover" />
-          : <div className="w-full h-full flex items-center justify-center text-muted-foreground text-xs">No image</div>
-        }
-      </Link>
+      <div className="relative aspect-[4/3] bg-muted overflow-hidden">
+        <Link
+          href={`/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/collection/${encodeURIComponent(name)}/edit/${encodeURIComponent(item.path)}`}
+          prefetch={true}
+          className="block w-full h-full"
+        >
+          {resolvedImage
+            ? <Thumbnail name={mediaName} path={resolvedImage} className="w-full h-full object-cover" />
+            : <div className="w-full h-full flex items-center justify-center text-muted-foreground text-xs">No image</div>
+          }
+        </Link>
+        {resolvedImage && repoPath && (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <a
+                  href={`https://github.com/${config.owner}/${config.repo}/blob/${config.branch}/${repoPath}`}
+                  target="_blank"
+                  className={cn(buttonVariants({ variant: "secondary", size: "icon-xs" }), "absolute bottom-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition-opacity")}
+                  onClick={e => e.stopPropagation()}
+                >
+                  <ArrowUpRight className="h-3.5 w-3.5" />
+                </a>
+              </TooltipTrigger>
+              <TooltipContent>View on GitHub</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
+      </div>
       <div className="flex items-center gap-1 px-2 py-1.5 min-w-0">
         <span className="text-sm font-medium truncate flex-1 min-w-0">{label}</span>
         <div className="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -284,10 +319,11 @@ export function CollectionView({
     isGalleryLayout ? (schema.fields?.find((f: any) => f.type === 'image')?.name ?? null) : null,
     [isGalleryLayout, schema.fields]
   );
-  const mediaName = useMemo(() =>
-    config?.object?.media?.[0]?.name,
+  const mediaConfig = useMemo(() =>
+    config?.object?.media?.[0],
     [config?.object?.media]
   );
+  const mediaName = mediaConfig?.name;
 
   const dndSensors = useSensors(
     useSensor(PointerSensor),
@@ -916,6 +952,7 @@ export function CollectionView({
                         primaryField={primaryField}
                         imageField={imageField}
                         mediaName={mediaName}
+                        mediaConfig={mediaConfig}
                         config={config}
                         name={name}
                         onDelete={handleDelete}
