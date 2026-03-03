@@ -309,7 +309,8 @@ export function CollectionView({
 
     tableColumns.push({
       accessorKey: "actions",
-      header: "Actions",
+      header: "",
+      meta: { className: "sticky right-0 bg-background [tr:hover_&]:bg-muted/50 shadow-[inset_4px_0_6px_-4px_rgba(0,0,0,0.06)]" },
       cell: ({ row }: { row: any }) => (
         <div className="flex gap-1 justify-end">
           {row.original.type === 'file' &&
