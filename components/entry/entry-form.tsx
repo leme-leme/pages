@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect, useRef, forwardRef, useCallback } from "react";
+import { useState, useMemo, useEffect, useRef, forwardRef, useCallback, createContext, useContext } from "react";
 import Link from "next/link";
 import {
   useForm,
@@ -66,9 +66,11 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   ChevronLeft,
   GripVertical,
+  Link2,
   Loader,
   Plus,
   Trash2,
+  Unlink,
   Ellipsis,
   ChevronRight,
   Dot,
@@ -80,6 +82,13 @@ import {
 import { toast } from "sonner";
 import { interpolate } from "@/lib/schema";
 import { useLocale } from "@/contexts/locale-context";
+
+// Context for the title→handle auto-link state, shared between EntryForm and SingleField
+const HandleLinkContext = createContext<{
+  isLinked: boolean;
+  setLinked: (v: boolean) => void;
+  lastAutoHandle: React.MutableRefObject<string>;
+} | null>(null);
 
 const SortableItem = ({
   id,
@@ -492,6 +501,7 @@ const SingleField = ({
   index?: number;
 }) => {
   const { control, formState: { errors } } = useFormContext();
+  const handleLinkCtx = useContext(HandleLinkContext);
   
   let FieldComponent;
 
@@ -541,31 +551,69 @@ const SingleField = ({
       </FormItem>
     );
   } else {
+    // Show link toggle for top-level handle field when linked to title
+    const isHandleField = fieldName === 'handle' && !!handleLinkCtx;
     return (
       <FormField
         name={fieldName}
         key={fieldName}
         control={control}
-        render={({ field: rhfManagedFieldProps, fieldState }) => (
-          <FormItem>
-            <div className="flex items-center h-5 gap-x-2">
-              {showLabel && field.label !== false &&
-                <FormLabel>
-                  {field.label || field.name}
-                </FormLabel>
+        render={({ field: rhfManagedFieldProps, fieldState }) => {
+          const wrappedOnChange = isHandleField
+            ? (e: any) => {
+                // Detect manual edits: if value differs from last auto-generated, unlink
+                const newVal = typeof e === 'string' ? e : e?.target?.value ?? '';
+                if (newVal !== handleLinkCtx!.lastAutoHandle.current) {
+                  handleLinkCtx!.setLinked(false);
+                }
+                rhfManagedFieldProps.onChange(e);
               }
-              {showLabel && field.required && <span className="inline-flex items-center rounded-full bg-muted border px-2 h-5 text-xs font-medium">Required</span>}
-            </div>
-            <FormControl>
-              <FieldComponent 
-                {...rhfManagedFieldProps}
-                {...fieldComponentProps}
-              />
-            </FormControl>
-            {field.description && <FormDescription>{field.description}</FormDescription>}
-            <FormMessage />
-          </FormItem>
-        )}
+            : rhfManagedFieldProps.onChange;
+
+          return (
+            <FormItem>
+              <div className="flex items-center h-5 gap-x-2">
+                {showLabel && field.label !== false &&
+                  <FormLabel>
+                    {field.label || field.name}
+                  </FormLabel>
+                }
+                {showLabel && field.required && <span className="inline-flex items-center rounded-full bg-muted border px-2 h-5 text-xs font-medium">Required</span>}
+                {showLabel && isHandleField && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        className="inline-flex items-center"
+                        onClick={() => handleLinkCtx!.setLinked(!handleLinkCtx!.isLinked)}
+                        aria-label={handleLinkCtx!.isLinked ? "Unlink from title" : "Re-sync from title"}
+                      >
+                        {handleLinkCtx!.isLinked
+                          ? <Link2 className="h-3.5 w-3.5 text-blue-500" />
+                          : <Unlink className="h-3.5 w-3.5 text-muted-foreground" />
+                        }
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">
+                      {handleLinkCtx!.isLinked
+                        ? "Auto-generated from title. Click to edit manually."
+                        : "Click to re-sync from title."}
+                    </TooltipContent>
+                  </Tooltip>
+                )}
+              </div>
+              <FormControl>
+                <FieldComponent
+                  {...rhfManagedFieldProps}
+                  {...fieldComponentProps}
+                  onChange={wrappedOnChange}
+                />
+              </FormControl>
+              {field.description && <FormDescription>{field.description}</FormDescription>}
+              <FormMessage />
+            </FormItem>
+          );
+        }}
       />
     );
   }
@@ -632,14 +680,16 @@ const EntryForm = ({
     fields.some((f: any) => f.name === 'title') && fields.some((f: any) => f.name === 'handle'),
     [fields]
   );
+  // Start unlinked when editing an existing entry that already has a handle
+  const [isHandleLinked, setIsHandleLinked] = useState(() => !defaultValues?.handle);
+  const lastAutoHandle = useRef<string>('');
   const titleValue = useWatch({
     control: form.control,
     name: 'title' as any,
     disabled: !hasTitleAndHandle
   });
-  const lastAutoHandle = useRef<string>('');
   useEffect(() => {
-    if (!hasTitleAndHandle || !titleValue) return;
+    if (!hasTitleAndHandle || !titleValue || !isHandleLinked) return;
     const slug = String(titleValue)
       .toLowerCase()
       .normalize('NFD')
@@ -648,12 +698,16 @@ const EntryForm = ({
       .trim()
       .replace(/\s+/g, '-')
       .replace(/-+/g, '-');
-    const currentHandle = form.getValues('handle' as any);
-    if (!currentHandle || currentHandle === lastAutoHandle.current) {
-      form.setValue('handle' as any, slug, { shouldDirty: true });
-      lastAutoHandle.current = slug;
-    }
-  }, [titleValue, hasTitleAndHandle, form]);
+    form.setValue('handle' as any, slug, { shouldDirty: true });
+    lastAutoHandle.current = slug;
+  }, [titleValue, hasTitleAndHandle, isHandleLinked, form]);
+
+  const handleLinkContextValue = useMemo(() =>
+    hasTitleAndHandle
+      ? { isLinked: isHandleLinked, setLinked: setIsHandleLinked, lastAutoHandle }
+      : null,
+    [hasTitleAndHandle, isHandleLinked]
+  );
 
   const renderFields = useCallback((
     fields: Field[],
@@ -686,6 +740,7 @@ const EntryForm = ({
   const previewPanelWidth = "clamp(300px, 45vw, 680px)";
 
   return (
+    <HandleLinkContext.Provider value={handleLinkContextValue}>
     <Form {...form}>
       <form onSubmit={form.handleSubmit(handleSubmit, handleError)}>
 
@@ -835,6 +890,7 @@ const EntryForm = ({
 
       </form>
     </Form>
+    </HandleLinkContext.Provider>
   );
 };
 
