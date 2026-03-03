@@ -398,12 +398,19 @@ export function EntryEditor({
           </FileOptions>
         }
         previewUrlTemplate={
-          schema?.preview_url ||
-          (config.object?.site_url
-            ? schema?.preview_path
-              ? `${config.object.site_url.replace(/\/$/, "")}${schema.preview_path}`
-              : config.object.site_url.replace(/\/$/, "")
-            : undefined)
+          config.object?.preview === false
+            ? undefined
+            : schema?.preview_url ||
+              (config.object?.site_url
+                ? schema?.preview_path
+                  ? `${config.object.site_url.replace(/\/$/, "")}${schema.preview_path}`
+                  : (() => {
+                      const handleField = schema?.fields?.find((f: any) => ['handle', 'slug', 'path'].includes(f.name));
+                      return handleField
+                        ? `${config.object.site_url.replace(/\/$/, "")}/{${handleField.name}}`
+                        : undefined;
+                    })()
+                : undefined)
         }
       />
   );

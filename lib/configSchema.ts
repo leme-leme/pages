@@ -362,6 +362,9 @@ const ConfigSchema = z.object({
   site_url: z.string({
     message: "'site_url' must be a string (e.g. 'https://example.com')."
   }).optional().nullable(),
+  preview: z.boolean({
+    message: "'preview' must be a boolean."
+  }).optional(),
 }).strict().nullable();
 
 export { ConfigSchema };

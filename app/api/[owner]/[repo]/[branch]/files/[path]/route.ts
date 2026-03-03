@@ -80,7 +80,7 @@ export async function POST(
             }
             
             // Use mapBlocks to convert config blocks array to a map
-            const zodSchema = generateZodSchema(contentFields);
+            const zodSchema = generateZodSchema(contentFields, false, config?.object);
             const zodValidation = zodSchema.safeParse(contentObject);
             
             if (zodValidation.success === false ) {

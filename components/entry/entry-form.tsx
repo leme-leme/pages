@@ -18,6 +18,7 @@ import {
   sanitizeObject
 } from "@/lib/schema";
 import { Field } from "@/types/field";
+import { useConfig } from "@/contexts/config-context";
 import { EntryHistoryBlock, EntryHistoryDropdown } from "./entry-history";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -599,10 +600,11 @@ const EntryForm = ({
   const [showPreview, setShowPreview] = useState(false);
   const [iframeKey, setIframeKey] = useState(0);
   const locale = useLocale();
+  const { config } = useConfig();
 
   const zodSchema = useMemo(() => {
-    return generateZodSchema(fields);
-  }, [fields]);
+    return generateZodSchema(fields, false, config?.object);
+  }, [fields, config?.object]);
 
   const defaultValues = useMemo(() => {
     return initializeState(fields, sanitizeObject(contentObject));
