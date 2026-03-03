@@ -477,7 +477,7 @@ export function CollectionView({
 
   // Load _order.json and apply sort order to fetched data
   const applyOrder = useCallback(async (fetchedData: Record<string, any>[], collectionPath: string) => {
-    if (!config || hasDateField) return fetchedData;
+    if (!config || hasDateField || schema.view?.default?.sort) return fetchedData;
     try {
       const orderPath = `${collectionPath.replace(/\/$/, "")}/_order.json`;
       const res = await fetch(`/api/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/files/${encodeURIComponent(orderPath)}`);
@@ -681,7 +681,7 @@ export function CollectionView({
               </Button>
             </FolderCreate>
           )}
-          {!hasDateField && schema.view?.layout !== 'tree' && !isLoading && (
+          {!hasDateField && !schema.view?.default?.sort && schema.view?.layout !== 'tree' && !isLoading && (
             isReordering ? (
               <>
                 <Button
