@@ -651,104 +651,115 @@ const EntryForm = ({
     toast.error("Please fix the errors before saving.", { duration: 5000 });
   };
 
+  const previewPanelWidth = "clamp(300px, 45vw, 680px)";
+
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(handleSubmit, handleError)}>
-        <div className="max-w-screen-xl mx-auto flex w-full gap-x-8">
-          <div className="flex-1 w-0 min-w-0">
-            <header className="flex items-center mb-6">
-              {navigateBack &&
-                <Link
-                  className={cn(buttonVariants({ variant: "outline", size: "icon-xs" }), "mr-4 shrink-0")}
-                  href={navigateBack}
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </Link>
-              }
 
-              <h1 className="font-semibold text-lg md:text-2xl truncate">{title}</h1>
-            </header>
-
-            <div onSubmit={form.handleSubmit(handleSubmit)} className="grid items-start gap-6">
-              {filePath &&
-                <div className="space-y-2 overflow-hidden">
-                  <FormLabel>
-                    Filename
-                  </FormLabel>
-                  {filePath}
-                </div>
-              }
-              {renderFields(fields)}
+        {/* Preview panel — fixed left, slides in on all screen sizes */}
+        {resolvedPreviewUrl && (
+          <div
+            className={cn(
+              "fixed top-14 xl:top-0 left-0 bottom-0 z-20",
+              "flex flex-col bg-background border-r shadow-lg",
+              "transition-transform duration-300 ease-in-out",
+              showPreview ? "translate-x-0" : "-translate-x-full"
+            )}
+            style={{ width: previewPanelWidth }}
+          >
+            <div className="flex items-center gap-1 px-3 h-12 border-b shrink-0">
+              <span className="text-xs text-muted-foreground truncate flex-1">{resolvedPreviewUrl}</span>
+              <Button type="button" variant="ghost" size="icon-xs" onClick={() => setIframeKey(k => k + 1)} title="Refresh">
+                <RefreshCw className="h-3.5 w-3.5" />
+              </Button>
+              <a href={resolvedPreviewUrl} target="_blank" rel="noreferrer" className={cn(buttonVariants({ variant: "ghost", size: "icon-xs" }))} title="Open in new tab">
+                <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+              <Button type="button" variant="ghost" size="icon-xs" onClick={() => setShowPreview(false)} title="Close preview">
+                <EyeOff className="h-3.5 w-3.5" />
+              </Button>
             </div>
-
+            <iframe
+              key={iframeKey}
+              src={resolvedPreviewUrl}
+              className="flex-1 w-full bg-white"
+              sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
+            />
           </div>
+        )}
 
-          {showPreview && resolvedPreviewUrl && (
-            <div className="hidden lg:flex flex-col flex-1 w-0 min-w-[360px]">
-              <div className="flex items-center gap-2 sticky top-0 bg-background py-1 mb-2 z-10">
-                <span className="text-sm font-medium flex-1 truncate text-muted-foreground">{resolvedPreviewUrl}</span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-xs"
-                  onClick={() => setIframeKey(k => k + 1)}
-                  title="Refresh preview"
-                >
-                  <RefreshCw className="h-3.5 w-3.5" />
-                </Button>
-                <a
-                  href={resolvedPreviewUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className={cn(buttonVariants({ variant: "ghost", size: "icon-xs" }))}
-                  title="Open in new tab"
-                >
-                  <ExternalLink className="h-3.5 w-3.5" />
-                </a>
+        {/* Form content — shifts right when preview panel is open */}
+        <div
+          className="transition-[margin] duration-300 ease-in-out"
+          style={{ marginLeft: showPreview && resolvedPreviewUrl ? previewPanelWidth : 0 }}
+        >
+          <div className="max-w-screen-xl mx-auto flex w-full gap-x-8">
+            <div className="flex-1 w-0 min-w-0">
+              <header className="flex items-center mb-6">
+                {navigateBack &&
+                  <Link
+                    className={cn(buttonVariants({ variant: "outline", size: "icon-xs" }), "mr-4 shrink-0")}
+                    href={navigateBack}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Link>
+                }
+                <h1 className="font-semibold text-lg md:text-2xl truncate">{title}</h1>
+              </header>
+
+              <div onSubmit={form.handleSubmit(handleSubmit)} className="grid items-start gap-6">
+                {filePath &&
+                  <div className="space-y-2 overflow-hidden">
+                    <FormLabel>Filename</FormLabel>
+                    {filePath}
+                  </div>
+                }
+                {renderFields(fields)}
               </div>
-              <iframe
-                key={iframeKey}
-                src={resolvedPreviewUrl}
-                className="w-full flex-1 rounded-lg border bg-white"
-                style={{ height: "calc(100vh - 80px)" }}
-                sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
-              />
             </div>
-          )}
 
-          <div className="hidden lg:block w-64 shrink-0">
-            <div className="flex flex-col gap-y-4 sticky top-0">
-              <div className="flex gap-x-2">
-                <Button type="submit" className="w-full" disabled={isSubmitting || !isDirty}>
-                  Save
-                  {isSubmitting && (<Loader className="ml-2 h-4 w-4 animate-spin" />)}
-                </Button>
-                {options ? options : null}
+            <div className="hidden lg:block w-64 shrink-0">
+              <div className="flex flex-col gap-y-4 sticky top-0">
+                <div className="flex gap-x-2">
+                  <Button type="submit" className="w-full" disabled={isSubmitting || !isDirty}>
+                    Save
+                    {isSubmitting && (<Loader className="ml-2 h-4 w-4 animate-spin" />)}
+                  </Button>
+                  {options ? options : null}
+                </div>
+                {resolvedPreviewUrl && (
+                  <Button
+                    type="button"
+                    variant={showPreview ? "secondary" : "outline"}
+                    size="sm"
+                    className="w-full justify-start gap-2"
+                    onClick={() => setShowPreview(v => !v)}
+                  >
+                    {showPreview ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    {showPreview ? "Hide preview" : "Show preview"}
+                  </Button>
+                )}
+                {path && history && <EntryHistoryBlock history={history} path={path} />}
               </div>
+            </div>
+
+            <div className="lg:hidden fixed top-0 right-0 h-14 flex items-center gap-x-2 z-10 pr-4 md:pr-6">
+              {path && history && <EntryHistoryDropdown history={history} path={path} />}
               {resolvedPreviewUrl && (
-                <Button
-                  type="button"
-                  variant={showPreview ? "secondary" : "outline"}
-                  size="sm"
-                  className="w-full justify-start gap-2"
-                  onClick={() => setShowPreview(v => !v)}
-                >
+                <Button type="button" variant={showPreview ? "secondary" : "outline"} size="icon" onClick={() => setShowPreview(v => !v)}>
                   {showPreview ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  {showPreview ? "Hide preview" : "Show preview"}
                 </Button>
               )}
-              {path && history && <EntryHistoryBlock history={history} path={path} />}
+              <Button type="submit" disabled={isSubmitting}>
+                Save
+                {isSubmitting && (<Loader className="ml-2 h-4 w-4 animate-spin" />)}
+              </Button>
+              {options ? options : null}
             </div>
           </div>
-          <div className="lg:hidden fixed top-0 right-0 h-14 flex items-center gap-x-2 z-10 pr-4 md:pr-6">
-            {path && history && <EntryHistoryDropdown history={history} path={path} />}
-            <Button type="submit" disabled={isSubmitting}>
-              Save
-              {isSubmitting && (<Loader className="ml-2 h-4 w-4 animate-spin" />)}
-            </Button>
-            {options ? options : null}
-          </div>
         </div>
+
       </form>
     </Form>
   );
