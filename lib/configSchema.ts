@@ -238,8 +238,8 @@ const ContentObjectSchema = z.object({
     message: "'exclude' must be an array of strings."
   }).optional(),
   view: z.object({
-    layout: z.enum(["tree", "list"], {
-      message: "'layout' must be either 'tree' or 'list'."
+    layout: z.enum(["tree", "list", "gallery"], {
+      message: "'layout' must be 'tree', 'list', or 'gallery'."
     }).optional(),
     node: z.union([
       z.object({

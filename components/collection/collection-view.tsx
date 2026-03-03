@@ -14,6 +14,7 @@ import { viewComponents } from "@/fields/registry";
 import { getSchemaByName, getPrimaryField, getFieldByPath, safeAccess } from "@/lib/schema";
 import { EmptyCreate } from "@/components/empty-create";
 import { FileOptions } from "@/components/file/file-options";
+import { Thumbnail } from "@/components/thumbnail";
 import { CollectionTable } from "./collection-table";
 import { FolderCreate} from "@/components/folder-create";
 import { Message } from "@/components/message";
@@ -61,6 +62,54 @@ import {
 } from "@dnd-kit/sortable";
 import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
 import { CSS } from "@dnd-kit/utilities";
+
+// Gallery card for gallery layout
+function GalleryCard({ item, primaryField, imageField, mediaName, config, name, onDelete, onRename }: {
+  item: Record<string, any>;
+  primaryField: string;
+  imageField: string | null;
+  mediaName: string | undefined;
+  config: any;
+  name: string;
+  onDelete: (path: string) => void;
+  onRename: (path: string, newPath: string) => void;
+}) {
+  const label = String(safeAccess(item.fields, primaryField) ?? item.name);
+  const imagePath = imageField ? safeAccess(item.fields, imageField) : null;
+  const resolvedImage = Array.isArray(imagePath) ? imagePath[0] : imagePath;
+
+  return (
+    <div className="group relative border rounded-md overflow-hidden bg-background flex flex-col">
+      <Link
+        href={`/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/collection/${encodeURIComponent(name)}/edit/${encodeURIComponent(item.path)}`}
+        prefetch={true}
+        className="block aspect-[4/3] bg-muted overflow-hidden"
+      >
+        {resolvedImage
+          ? <Thumbnail name={mediaName} path={resolvedImage} className="w-full h-full object-cover" />
+          : <div className="w-full h-full flex items-center justify-center text-muted-foreground text-xs">No image</div>
+        }
+      </Link>
+      <div className="flex items-center gap-1 px-2 py-1.5 min-w-0">
+        <span className="text-sm font-medium truncate flex-1 min-w-0">{label}</span>
+        <div className="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+          <Link
+            className={cn(buttonVariants({ variant: "outline", size: "sm" }), "h-7 text-xs")}
+            href={`/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/collection/${encodeURIComponent(name)}/edit/${encodeURIComponent(item.path)}`}
+            prefetch={true}
+          >
+            Edit
+          </Link>
+          <FileOptions path={item.path} sha={item.sha} type="collection" name={name} onDelete={onDelete} onRename={onRename}>
+            <Button variant="outline" size="icon-sm" className="w-7 h-7">
+              <Ellipsis className="h-3.5 w-3.5" />
+            </Button>
+          </FileOptions>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // Sortable row for drag-to-reorder mode
 function SortableReorderRow({ item, primaryField }: { item: Record<string, any>; primaryField: string }) {
@@ -189,6 +238,18 @@ export function CollectionView({
   // - No date field and no explicit sort field → _order.json approach
   // - Has a configured sort field that exists in the schema → frontmatter approach
   const canReorder = (!hasDateField && !sortField) || hasFrontmatterSort;
+
+  const isGalleryLayout = schema.view?.layout === 'gallery';
+
+  // For gallery layout: find the first image field in the schema to use as thumbnail
+  const imageField = useMemo(() =>
+    isGalleryLayout ? (schema.fields?.find((f: any) => f.type === 'image')?.name ?? null) : null,
+    [isGalleryLayout, schema.fields]
+  );
+  const mediaName = useMemo(() =>
+    config?.object?.media?.[0]?.name,
+    [config?.object?.media]
+  );
 
   const dndSensors = useSensors(
     useSensor(PointerSensor),
@@ -816,7 +877,29 @@ export function CollectionView({
                 </SortableContext>
               </DndContext>
             )
-            : <CollectionTable
+            : isGalleryLayout
+              ? (
+                <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(10rem, 1fr))" }}>
+                  {data
+                    .filter((item: any) => item.type === 'file')
+                    .filter((item: any) => !search || String(safeAccess(item.fields, primaryField) ?? item.name).toLowerCase().includes(search.toLowerCase()))
+                    .map((item: any) => (
+                      <GalleryCard
+                        key={item.path}
+                        item={item}
+                        primaryField={primaryField}
+                        imageField={imageField}
+                        mediaName={mediaName}
+                        config={config}
+                        name={name}
+                        onDelete={handleDelete}
+                        onRename={handleRename}
+                      />
+                    ))
+                  }
+                </div>
+              )
+              : <CollectionTable
                 columns={columns}
                 data={data}
                 search={search}
