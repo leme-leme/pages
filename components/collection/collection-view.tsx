@@ -111,32 +111,60 @@ function GalleryCard({ item, primaryField, imageField, mediaName, config, name, 
   );
 }
 
-// Sortable row for drag-to-reorder mode
-function SortableReorderRow({ item, primaryField }: { item: Record<string, any>; primaryField: string }) {
+// Inline sortable row — always visible when collection supports reordering
+function SortableTableRow({ item, primaryField, config, name, onDelete, onRename }: {
+  item: Record<string, any>;
+  primaryField: string;
+  config: any;
+  name: string;
+  onDelete: (path: string) => void;
+  onRename: (path: string, newPath: string) => void;
+}) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.path });
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.5 : 1,
+    opacity: isDragging ? 0.4 : 1,
+    zIndex: isDragging ? 10 : 0,
+    position: 'relative' as const,
   };
   const label = safeAccess(item.fields, primaryField) ?? item.name;
   return (
     <div
       ref={setNodeRef}
       style={style}
-      className="flex items-center gap-3 px-3 py-2.5 border-b last:border-b-0 bg-background"
+      className="flex items-center gap-1 border-b last:border-b-0 h-14 bg-background hover:bg-muted/50"
     >
       <button
         type="button"
         {...attributes}
         {...listeners}
-        className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground shrink-0"
+        className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground p-2 shrink-0"
         tabIndex={-1}
       >
         <GripVertical className="h-4 w-4" />
       </button>
-      <span className="truncate text-sm">{String(label)}</span>
-      <span className="ml-auto text-xs text-muted-foreground shrink-0">{item.name}</span>
+      <Link
+        href={`/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/collection/${encodeURIComponent(name)}/edit/${encodeURIComponent(item.path)}`}
+        prefetch={true}
+        className="font-medium truncate flex-1 min-w-0 px-2"
+      >
+        {String(label)}
+      </Link>
+      <div className="flex gap-1 justify-end shrink-0">
+        <Link
+          className={cn(buttonVariants({ variant: "outline", size: "sm" }), "h-8")}
+          href={`/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/collection/${encodeURIComponent(name)}/edit/${encodeURIComponent(item.path)}`}
+          prefetch={true}
+        >
+          Edit
+        </Link>
+        <FileOptions path={item.path} sha={item.sha} type="collection" name={name} onDelete={onDelete} onRename={onRename}>
+          <Button variant="outline" size="icon-sm" className="w-8 h-8">
+            <Ellipsis className="h-4 w-4" />
+          </Button>
+        </FileOptions>
+      </div>
     </div>
   );
 }
@@ -152,7 +180,6 @@ export function CollectionView({
   const [data, setData] = useState<Record<string, any>[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [isReordering, setIsReordering] = useState(false);
   const [reorderData, setReorderData] = useState<Record<string, any>[]>([]);
   const [orderSha, setOrderSha] = useState<string | null>(null);
   const [isSavingOrder, setIsSavingOrder] = useState(false);
@@ -238,6 +265,17 @@ export function CollectionView({
   // - No date field and no explicit sort field → _order.json approach
   // - Has a configured sort field that exists in the schema → frontmatter approach
   const canReorder = (!hasDateField && !sortField) || hasFrontmatterSort;
+
+  // Sync reorderData whenever data is refreshed (resets any unsaved drag changes)
+  useEffect(() => {
+    setReorderData([...data]);
+  }, [data]);
+
+  // True when user has dragged items into a different order than what's saved
+  const isDirty = useMemo(
+    () => reorderData.length > 0 && reorderData.some((item, idx) => item.path !== data[idx]?.path),
+    [reorderData, data]
+  );
 
   const isGalleryLayout = schema.view?.layout === 'gallery';
 
@@ -582,7 +620,6 @@ export function CollectionView({
 
     setIsLoading(true);
     setError(null);
-    setIsReordering(false);
 
     fetchCollectionData(currentPath)
       .then(async fetchedData => {
@@ -633,7 +670,7 @@ export function CollectionView({
           if (json.status !== 'success') throw new Error(json.message);
         }));
 
-        // Update local state with new field values
+        // Update local data with new field values (this also resets isDirty via the useEffect)
         setData(reorderData.map((item: any, idx: number) =>
           item.type === 'dir' ? item : { ...item, fields: { ...item.fields, [sortField]: idx + 1 } }
         ));
@@ -651,7 +688,6 @@ export function CollectionView({
         setOrderSha(json.data.sha ?? null);
         setData(reorderData);
       }
-      setIsReordering(false);
       toast.success("Order saved.");
     } catch (err: any) {
       toast.error(`Failed to save order: ${err.message}`);
@@ -785,54 +821,36 @@ export function CollectionView({
             <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 opacity-50 pointer-events-none"/>
             <Input className="h-9 pl-9" value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
-          {schema.subfolders !== false && !isReordering && (
+          {schema.subfolders !== false && !isDirty && (
             <FolderCreate path={path || schema.path} type="content" name={name} onCreate={handleFolderCreate}>
               <Button type="button" variant="outline" className="ml-auto shrink-0" size="icon-sm">
                 <FolderPlus className="h-3.5 w-3.5"/>
               </Button>
             </FolderCreate>
           )}
-          {canReorder && schema.view?.layout !== 'tree' && !isLoading && (
-            isReordering ? (
-              <>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setIsReordering(false)}
-                  disabled={isSavingOrder}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={handleSaveOrder}
-                  disabled={isSavingOrder}
-                >
-                  {isSavingOrder ? <Loader className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
-                  Save order
-                </Button>
-              </>
-            ) : (
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon-sm"
-                      onClick={() => { setReorderData([...data]); setIsReordering(true); }}
-                    >
-                      <GripVertical className="h-3.5 w-3.5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Reorder entries</TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )
+          {canReorder && isDirty && schema.view?.layout !== 'tree' && (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setReorderData([...data])}
+                disabled={isSavingOrder}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleSaveOrder}
+                disabled={isSavingOrder}
+              >
+                {isSavingOrder ? <Loader className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
+                Save order
+              </Button>
+            </>
           )}
-          {!isReordering && (
+          {!isDirty && (
             <>
               <Link
                 className={cn(buttonVariants({size: "sm"}), "hidden sm:flex")}
@@ -851,7 +869,7 @@ export function CollectionView({
         </header>
         {isLoading
           ? loadingSkeleton
-          : isReordering
+          : canReorder && schema.view?.layout !== 'tree'
             ? (
               <DndContext
                 sensors={dndSensors}
@@ -871,7 +889,15 @@ export function CollectionView({
                 <SortableContext items={reorderData.map(d => d.path)} strategy={verticalListSortingStrategy}>
                   <div className="border rounded-md overflow-hidden">
                     {reorderData.filter((d: any) => d.type !== 'dir').map(item => (
-                      <SortableReorderRow key={item.path} item={item} primaryField={primaryField} />
+                      <SortableTableRow
+                        key={item.path}
+                        item={item}
+                        primaryField={primaryField}
+                        config={config}
+                        name={name}
+                        onDelete={handleDelete}
+                        onRename={handleRename}
+                      />
                     ))}
                   </div>
                 </SortableContext>
