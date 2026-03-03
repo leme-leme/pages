@@ -43,7 +43,7 @@ export function EntryPreview({ content, format = "markdown", className }: EntryP
           }
         }
 
-        containerRef.current.innerHTML = html;
+        if (containerRef.current) containerRef.current.innerHTML = html;
       } catch (e) {
         if (containerRef.current) {
           containerRef.current.textContent = content;
