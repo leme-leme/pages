@@ -222,6 +222,11 @@ export async function POST(
 
         contentBase64 = Buffer.from(data.content.body ?? "").toString("base64");
         break;
+      case "raw":
+        contentBase64 = Buffer.from(
+          typeof data.content === "string" ? data.content : JSON.stringify(data.content, null, 2)
+        ).toString("base64");
+        break;
       default:
         throw new Error(`Invalid type "${data.type}".`);
     }
@@ -471,5 +476,45 @@ export async function DELETE(
       status: "error",
       message: error.message,
     });
+  }
+};
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { owner: string, repo: string, branch: string, path: string } }
+) {
+  try {
+    const { user, session } = await getAuth();
+    if (!session) return new Response(null, { status: 401 });
+
+    const token = await getToken(user, params.owner, params.repo);
+    if (!token) throw new Error("Token not found");
+
+    const octokit = createOctokitInstance(token);
+    const normalizedPath = normalizePath(params.path);
+
+    const response = await octokit.rest.repos.getContent({
+      owner: params.owner,
+      repo: params.repo,
+      path: normalizedPath,
+      ref: params.branch,
+    });
+
+    if (Array.isArray(response.data) || response.data.type !== "file") {
+      throw new Error("Not a file");
+    }
+
+    const content = Buffer.from(response.data.content, "base64").toString("utf-8");
+
+    return Response.json({
+      status: "success",
+      data: {
+        content,
+        sha: response.data.sha,
+        path: normalizedPath,
+      }
+    });
+  } catch (error: any) {
+    return Response.json({ status: "error", message: error.message });
   }
 };

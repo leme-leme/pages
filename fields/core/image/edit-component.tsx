@@ -26,12 +26,27 @@ import { getAllowedExtensions } from "./index";
 
 const generateId = () => uuidv4().slice(0, 8);
 
-const ImageTeaser = ({ file, config, media, onRemove }: { 
+const ImageTeaser = ({ file, config, media, mediaConfig, onRemove }: {
   file: string;
   config: any;
   media: string;
+  mediaConfig: any;
   onRemove: (file: string) => void;
 }) => {
+  // Convert stored output path (e.g. /media/foo.jpg) to repo input path (e.g. static/media/foo.jpg)
+  const repoPath = useMemo(() => {
+    if (!file || !mediaConfig) return file?.replace(/^\//, '') ?? file;
+    const outputPrefix = (mediaConfig.output ?? "").replace(/\/$/, "");
+    const inputPrefix = (mediaConfig.input ?? "").replace(/\/$/, "");
+    const normalizedFile = file.startsWith("/") ? file : "/" + file;
+    const normalizedOutput = outputPrefix.startsWith("/") ? outputPrefix : "/" + outputPrefix;
+    if (normalizedOutput && (normalizedFile === normalizedOutput || normalizedFile.startsWith(normalizedOutput + "/"))) {
+      const rest = normalizedFile.slice(normalizedOutput.length);
+      return (inputPrefix + rest).replace(/^\//, "");
+    }
+    return file.replace(/^\//, "");
+  }, [file, mediaConfig]);
+
   return (
     <>
       <div className="absolute bottom-1.5 right-1.5">
@@ -39,7 +54,7 @@ const ImageTeaser = ({ file, config, media, onRemove }: {
           <Tooltip>
             <TooltipTrigger asChild>
               <a
-                href={`https://github.com/${config.owner}/${config.repo}/blob/${config.branch}/${file}`}
+                href={`https://github.com/${config.owner}/${config.repo}/blob/${config.branch}/${repoPath}`}
                 target="_blank"
                 className={cn(buttonVariants({ variant: "secondary", size: "icon-xs" }), "rounded-r-none")}
               >
@@ -47,7 +62,7 @@ const ImageTeaser = ({ file, config, media, onRemove }: {
               </a>
             </TooltipTrigger>
             <TooltipContent>
-              See on GitHub
+              View on GitHub
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
@@ -66,7 +81,7 @@ const ImageTeaser = ({ file, config, media, onRemove }: {
               </Button>
             </TooltipTrigger>
             <TooltipContent>
-              Remove
+              Remove from gallery
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
@@ -75,11 +90,12 @@ const ImageTeaser = ({ file, config, media, onRemove }: {
   )
 };
 
-const SortableItem = ({ id, file, config, media, onRemove }: {
+const SortableItem = ({ id, file, config, media, mediaConfig, onRemove }: {
   id: string;
   file: string;
   config: any;
   media: string;
+  mediaConfig: any;
   onRemove: (file: string) => void;
 }) => {
   const {
@@ -104,7 +120,7 @@ const SortableItem = ({ id, file, config, media, onRemove }: {
       <div {...attributes} {...listeners} className="w-full h-full cursor-grab active:cursor-grabbing">
         <Thumbnail name={media} path={file} className="rounded-md w-full h-full object-cover"/>
       </div>
-      <ImageTeaser file={file} config={config} onRemove={onRemove} media={media} />
+      <ImageTeaser file={file} config={config} onRemove={onRemove} media={media} mediaConfig={mediaConfig} />
     </div>
   );
 };
@@ -261,6 +277,7 @@ const EditComponent = forwardRef((props: any, ref: React.Ref<HTMLInputElement>) 
                         file={file.path}
                         config={config}
                         media={mediaConfig.name}
+                        mediaConfig={mediaConfig}
                         onRemove={() => handleRemove(file.id)}
                       />
                     ))}
@@ -270,7 +287,7 @@ const EditComponent = forwardRef((props: any, ref: React.Ref<HTMLInputElement>) 
             ) : (
               <div className="aspect-square w-28 relative">
                 <Thumbnail name={mediaConfig.name} path={files[0].path} className="rounded-md w-28 h-28"/>
-                <ImageTeaser file={files[0].path} config={config} media={mediaConfig.name} onRemove={() => handleRemove(files[0].id)} />
+                <ImageTeaser file={files[0].path} config={config} media={mediaConfig.name} mediaConfig={mediaConfig} onRemove={() => handleRemove(files[0].id)} />
               </div>
             )
           )}

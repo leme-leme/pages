@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { getRawUrl } from "@/lib/githubImage";
 import { useRepo } from "@/contexts/repo-context";
 import { useConfig } from "@/contexts/config-context";
@@ -68,7 +68,8 @@ export function Thumbnail({
   className?: string;
 }) {
   const [rawUrl, setRawUrl] = useState<string | null>(null);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   const { owner, repo, isPrivate } = useRepo();
   const { config } = useConfig();
@@ -81,23 +82,22 @@ export function Thumbnail({
   }, [path, name, config]);
 
   useEffect(() => {
-    const fetchRawUrl = async () => {
-      if (repoPath) {
-        setError(null);
-        if (!rawUrl) setRawUrl(null);
-        try {
-          const url = await getRawUrl(owner, repo, branch, name, repoPath, isPrivate);
-          setRawUrl(url);
-        } catch (error: any) {
-          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-          console.warn(errorMessage);
-          setError(error.message);
-        }
-      }
-    };
+    if (!repoPath) return;
+    let cancelled = false;
+    setError(null);
+    setRawUrl(null);
+    getRawUrl(owner, repo, branch, name, repoPath, isPrivate)
+      .then((url) => { if (!cancelled) setRawUrl(url); })
+      .catch((err: any) => { if (!cancelled) setError(err?.message ?? "Error"); });
+    return () => { cancelled = true; };
+  }, [repoPath, owner, repo, branch, isPrivate, name]);
 
-    fetchRawUrl();
-  }, [repoPath, owner, repo, branch, isPrivate, name, rawUrl]);
+  // Seek to first frame so the video element shows a poster thumbnail
+  const handleLoadedMetadata = () => {
+    if (videoRef.current) {
+      videoRef.current.currentTime = 0.1;
+    }
+  };
 
   return (
     <div
@@ -110,11 +110,13 @@ export function Thumbnail({
         ? rawUrl
           ? isVideo(path)
             ? <video
+                ref={videoRef}
                 src={rawUrl}
                 className="absolute inset-0 w-full h-full object-cover"
                 muted
                 playsInline
                 preload="metadata"
+                onLoadedMetadata={handleLoadedMetadata}
               />
             : <img
                 src={rawUrl}

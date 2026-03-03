@@ -99,6 +99,7 @@ const normalizeConfig = (configObject: any) => {
       }
       if (item.filename == null && item.type === "collection") {
         item.filename = "{year}-{month}-{day}-{primary}.md";
+        item.filenameIsDefault = true;
       }
       if (item.extension == null) {
         const filename = item.type === "file" ? item.path : item.filename;

@@ -627,6 +627,34 @@ const EntryForm = ({
     return interpolate(previewUrlTemplate, allValues as Record<string, any>);
   }, [previewUrlTemplate, allValues]);
 
+  // Auto-generate handle from title field when both fields exist
+  const hasTitleAndHandle = useMemo(() =>
+    fields.some((f: any) => f.name === 'title') && fields.some((f: any) => f.name === 'handle'),
+    [fields]
+  );
+  const titleValue = useWatch({
+    control: form.control,
+    name: 'title' as any,
+    disabled: !hasTitleAndHandle
+  });
+  const lastAutoHandle = useRef<string>('');
+  useEffect(() => {
+    if (!hasTitleAndHandle || !titleValue) return;
+    const slug = String(titleValue)
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9\s-]/g, '')
+      .trim()
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-');
+    const currentHandle = form.getValues('handle' as any);
+    if (!currentHandle || currentHandle === lastAutoHandle.current) {
+      form.setValue('handle' as any, slug, { shouldDirty: true });
+      lastAutoHandle.current = slug;
+    }
+  }, [titleValue, hasTitleAndHandle, form]);
+
   const renderFields = useCallback((
     fields: Field[],
     parentName?: string
