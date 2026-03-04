@@ -51,7 +51,6 @@ import {
   closestCenter,
   KeyboardSensor,
   PointerSensor,
-  TouchSensor,
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
@@ -180,6 +179,7 @@ function SortableTableRow({ item, index, showOrderNumber, sortField, primaryFiel
         {...attributes}
         {...listeners}
         className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground px-2 shrink-0 self-stretch flex items-center"
+        style={{ touchAction: 'none' }}
         tabIndex={-1}
       >
         <GripVertical className="h-4 w-4" />
@@ -351,7 +351,6 @@ export function CollectionView({
 
   const dndSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
