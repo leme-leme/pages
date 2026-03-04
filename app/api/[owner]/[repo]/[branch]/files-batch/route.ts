@@ -40,10 +40,8 @@ export async function POST(
 
     const octokit = createOctokitInstance(token);
 
-    // Serialize each file to a blob
-    const blobs: Array<{ path: string; blobSha: string; text: string }> = [];
-
-    for (const update of updates) {
+    // Serialize all files and create blobs in parallel
+    const blobs = await Promise.all(updates.map(async (update) => {
       const normalizedPath = normalizePath(update.path);
 
       let contentObject = update.content;
@@ -85,8 +83,8 @@ export async function POST(
         encoding: "base64",
       });
 
-      blobs.push({ path: normalizedPath, blobSha: blobRes.data.sha, text });
-    }
+      return { path: normalizedPath, blobSha: blobRes.data.sha, text };
+    }));
 
     // Get current branch tip
     const refRes = await octokit.rest.git.getRef({
@@ -133,17 +131,17 @@ export async function POST(
       sha: newCommitRes.data.sha,
     });
 
-    // Update cache for each modified file
-    for (const blob of blobs) {
-      await updateFileCache("collection", params.owner, params.repo, params.branch, {
+    // Update cache for all modified files in parallel
+    await Promise.all(blobs.map((blob) =>
+      updateFileCache("collection", params.owner, params.repo, params.branch, {
         type: "modify",
         path: blob.path,
         sha: blob.blobSha,
         content: blob.text,
         size: Buffer.byteLength(blob.text),
         commit: { sha: newCommitRes.data.sha, timestamp: Date.now() },
-      });
-    }
+      })
+    ));
 
     return Response.json({
       status: "success",

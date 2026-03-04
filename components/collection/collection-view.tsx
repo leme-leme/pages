@@ -650,7 +650,15 @@ export function CollectionView({
 
   // Load _order.json and apply sort order to fetched data
   const applyOrder = useCallback(async (fetchedData: Record<string, any>[], collectionPath: string) => {
-    if (!config || hasDateField || hasFrontmatterSort) return fetchedData;
+    if (!config || hasDateField) return fetchedData;
+    // For frontmatter-sorted collections, sort by the sort field value numerically
+    if (hasFrontmatterSort && sortField) {
+      return [...fetchedData].sort((a, b) => {
+        const aVal = Number(safeAccess(a.fields, sortField) ?? Infinity);
+        const bVal = Number(safeAccess(b.fields, sortField) ?? Infinity);
+        return aVal - bVal;
+      });
+    }
     try {
       const orderPath = `${collectionPath.replace(/\/$/, "")}/_order.json`;
       const res = await fetch(`/api/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/files/${encodeURIComponent(orderPath)}`);
