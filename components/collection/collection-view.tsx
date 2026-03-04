@@ -147,9 +147,10 @@ function GalleryCard({ item, primaryField, imageField, mediaName, mediaConfig, c
 }
 
 // Inline sortable row — shows order number + all view columns + grip handle
-function SortableTableRow({ item, index, primaryField, viewFields, config, name, onDelete, onRename }: {
+function SortableTableRow({ item, index, showOrderNumber, primaryField, viewFields, config, name, onDelete, onRename }: {
   item: Record<string, any>;
   index: number;
+  showOrderNumber: boolean;
   primaryField: string;
   viewFields: any[];
   config: any;
@@ -181,17 +182,19 @@ function SortableTableRow({ item, index, primaryField, viewFields, config, name,
       >
         <GripVertical className="h-4 w-4" />
       </button>
-      <span className="w-7 text-xs text-muted-foreground text-right shrink-0 pr-3 tabular-nums">
-        {index + 1}
-      </span>
+      {showOrderNumber && (
+        <span className="w-7 text-xs text-muted-foreground text-right shrink-0 pr-3 tabular-nums">
+          {index + 1}
+        </span>
+      )}
       {viewFields.map((pathAndField: any) => {
         const fieldPath = pathAndField.path;
         const field = pathAndField.field;
         const cellValue = safeAccess(item.fields, fieldPath);
-        const FieldComponent = viewComponents?.[field.type];
+        const FieldComponent = viewComponents?.[field.type] as any;
         const content = FieldComponent
           ? <FieldComponent value={cellValue} field={field} />
-          : Array.isArray(cellValue) ? cellValue.join(', ') : (cellValue ?? '');
+          : Array.isArray(cellValue) ? cellValue.join(', ') : String(cellValue ?? '');
         if (field.name === primaryField) {
           return (
             <Link key={fieldPath} href={editHref} prefetch={true} className="font-medium truncate flex-1 min-w-0 px-3">
@@ -948,6 +951,7 @@ export function CollectionView({
                         key={item.path}
                         item={item}
                         index={index}
+                        showOrderNumber={hasFrontmatterSort}
                         primaryField={primaryField}
                         viewFields={viewFields}
                         config={config}
