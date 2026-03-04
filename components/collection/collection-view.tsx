@@ -146,10 +146,12 @@ function GalleryCard({ item, primaryField, imageField, mediaName, mediaConfig, c
   );
 }
 
-// Inline sortable row — always visible when collection supports reordering
-function SortableTableRow({ item, primaryField, config, name, onDelete, onRename }: {
+// Inline sortable row — shows order number + all view columns + grip handle
+function SortableTableRow({ item, index, primaryField, viewFields, config, name, onDelete, onRename }: {
   item: Record<string, any>;
+  index: number;
   primaryField: string;
+  viewFields: any[];
   config: any;
   name: string;
   onDelete: (path: string) => void;
@@ -163,33 +165,50 @@ function SortableTableRow({ item, primaryField, config, name, onDelete, onRename
     zIndex: isDragging ? 10 : 0,
     position: 'relative' as const,
   };
-  const label = safeAccess(item.fields, primaryField) ?? item.name;
+  const editHref = `/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/collection/${encodeURIComponent(name)}/edit/${encodeURIComponent(item.path)}`;
   return (
     <div
       ref={setNodeRef}
       style={style}
-      className="flex items-center gap-1 border-b last:border-b-0 h-14 bg-background hover:bg-muted/50"
+      className="flex items-center border-b last:border-b-0 h-12 bg-background hover:bg-muted/50"
     >
       <button
         type="button"
         {...attributes}
         {...listeners}
-        className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground p-2 shrink-0"
+        className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground px-2 shrink-0 self-stretch flex items-center"
         tabIndex={-1}
       >
         <GripVertical className="h-4 w-4" />
       </button>
-      <Link
-        href={`/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/collection/${encodeURIComponent(name)}/edit/${encodeURIComponent(item.path)}`}
-        prefetch={true}
-        className="font-medium truncate flex-1 min-w-0 px-2"
-      >
-        {String(label)}
-      </Link>
-      <div className="flex gap-1 justify-end shrink-0">
+      <span className="w-7 text-xs text-muted-foreground text-right shrink-0 pr-3 tabular-nums">
+        {index + 1}
+      </span>
+      {viewFields.map((pathAndField: any) => {
+        const fieldPath = pathAndField.path;
+        const field = pathAndField.field;
+        const cellValue = safeAccess(item.fields, fieldPath);
+        const FieldComponent = viewComponents?.[field.type];
+        const content = FieldComponent
+          ? <FieldComponent value={cellValue} field={field} />
+          : Array.isArray(cellValue) ? cellValue.join(', ') : (cellValue ?? '');
+        if (field.name === primaryField) {
+          return (
+            <Link key={fieldPath} href={editHref} prefetch={true} className="font-medium truncate flex-1 min-w-0 px-3">
+              {content}
+            </Link>
+          );
+        }
+        return (
+          <div key={fieldPath} className="truncate w-28 shrink-0 px-3 text-sm text-muted-foreground">
+            {content}
+          </div>
+        );
+      })}
+      <div className="flex gap-1 justify-end shrink-0 px-2 ml-auto">
         <Link
           className={cn(buttonVariants({ variant: "outline", size: "sm" }), "h-8")}
-          href={`/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/collection/${encodeURIComponent(name)}/edit/${encodeURIComponent(item.path)}`}
+          href={editHref}
           prefetch={true}
         >
           Edit
@@ -924,11 +943,13 @@ export function CollectionView({
               >
                 <SortableContext items={reorderData.map(d => d.path)} strategy={verticalListSortingStrategy}>
                   <div className="border rounded-md overflow-hidden">
-                    {reorderData.filter((d: any) => d.type !== 'dir').map(item => (
+                    {reorderData.filter((d: any) => d.type !== 'dir').map((item, index) => (
                       <SortableTableRow
                         key={item.path}
                         item={item}
+                        index={index}
                         primaryField={primaryField}
+                        viewFields={viewFields}
                         config={config}
                         name={name}
                         onDelete={handleDelete}
