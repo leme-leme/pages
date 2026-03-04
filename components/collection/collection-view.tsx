@@ -51,6 +51,7 @@ import {
   closestCenter,
   KeyboardSensor,
   PointerSensor,
+  TouchSensor,
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
@@ -147,10 +148,11 @@ function GalleryCard({ item, primaryField, imageField, mediaName, mediaConfig, c
 }
 
 // Inline sortable row — shows order number + all view columns + grip handle
-function SortableTableRow({ item, index, showOrderNumber, primaryField, viewFields, config, name, onDelete, onRename }: {
+function SortableTableRow({ item, index, showOrderNumber, sortField, primaryField, viewFields, config, name, onDelete, onRename }: {
   item: Record<string, any>;
   index: number;
   showOrderNumber: boolean;
+  sortField: string | undefined;
   primaryField: string;
   viewFields: any[];
   config: any;
@@ -187,7 +189,7 @@ function SortableTableRow({ item, index, showOrderNumber, primaryField, viewFiel
           {index + 1}
         </span>
       )}
-      {viewFields.map((pathAndField: any) => {
+      {viewFields.filter((pf: any) => !(showOrderNumber && pf.field.name === sortField)).map((pathAndField: any) => {
         const fieldPath = pathAndField.path;
         const field = pathAndField.field;
         const cellValue = safeAccess(item.fields, fieldPath);
@@ -348,7 +350,8 @@ export function CollectionView({
   const mediaName = mediaConfig?.name;
 
   const dndSensors = useSensors(
-    useSensor(PointerSensor),
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
@@ -952,6 +955,7 @@ export function CollectionView({
                         item={item}
                         index={index}
                         showOrderNumber={hasFrontmatterSort}
+                        sortField={sortField}
                         primaryField={primaryField}
                         viewFields={viewFields}
                         config={config}
