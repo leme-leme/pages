@@ -889,7 +889,7 @@ export function CollectionView({
               </Button>
             </FolderCreate>
           )}
-          {canReorder && isDirty && schema.view?.layout !== 'tree' && (
+          {hasFrontmatterSort && isDirty && schema.view?.layout !== 'tree' && (
             <>
               <Button
                 type="button"
@@ -930,7 +930,7 @@ export function CollectionView({
         </header>
         {isLoading
           ? loadingSkeleton
-          : canReorder && schema.view?.layout !== 'tree'
+          : hasFrontmatterSort && schema.view?.layout !== 'tree'
             ? (
               <DndContext
                 sensors={dndSensors}
