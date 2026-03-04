@@ -702,7 +702,7 @@ export function CollectionView({
     setIsSavingOrder(true);
     try {
       if (hasFrontmatterSort && sortField) {
-        // Update each file's sort field in frontmatter to reflect new position (1-based)
+        // Collect all files that need a new order value
         const fileItems = reorderData.filter((d: any) => d.type !== 'dir');
         const toUpdate = fileItems
           .map((item: any, idx: number) => {
@@ -710,25 +710,29 @@ export function CollectionView({
             const currentVal = safeAccess(item.fields, sortField);
             return String(currentVal) === String(newVal) ? null : { item, newVal };
           })
-          .filter(Boolean);
+          .filter(Boolean) as Array<{ item: any; newVal: number }>;
 
-        await Promise.all(toUpdate.map(async ({ item, newVal }: any) => {
+        if (toUpdate.length > 0) {
+          // Batch all frontmatter updates into a single commit
           const res = await fetch(
-            `/api/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/files/${encodeURIComponent(item.path)}`,
+            `/api/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/files-batch`,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                type: 'content',
                 name,
-                sha: item.sha,
-                content: { ...item.fields, [sortField]: newVal },
+                message: `Reorder ${name} (via Pages CMS)`,
+                updates: toUpdate.map(({ item, newVal }) => ({
+                  path: item.path,
+                  sha: item.sha,
+                  content: { ...item.fields, [sortField]: newVal },
+                })),
               }),
             }
           );
           const json = await res.json();
           if (json.status !== 'success') throw new Error(json.message);
-        }));
+        }
 
         // Update local data with new field values (this also resets isDirty via the useEffect)
         setData(reorderData.map((item: any, idx: number) =>
