@@ -47,6 +47,7 @@ export async function GET(
     const type = searchParams.get("type");
     const query = searchParams.get("query") || "";
     const fields = searchParams.get("fields")?.split(",") || ["name"];
+    const limit = searchParams.get("limit") ? parseInt(searchParams.get("limit")!, 10) : null;
 
     const normalizedPath = normalizePath(path);
     if (!normalizedPath.startsWith(schema.path)) throw new Error(`Invalid path "${path}" for collection "${params.name}".`);
@@ -56,7 +57,20 @@ export async function GET(
     }
 
     let entries = await getCollectionCache(params.owner, params.repo, params.branch, normalizedPath, token, schema.view?.node?.filename);
-    
+
+    // For search requests on subfolder collections, recursively fetch entries from subdirectories
+    if (type === "search" && schema.subfolders !== false) {
+      const subDirs = entries.filter((item: any) => item.type === "dir");
+      if (subDirs.length > 0) {
+        const subEntries = await Promise.all(
+          subDirs.map((dir: any) =>
+            getCollectionCache(params.owner, params.repo, params.branch, dir.path, token)
+          )
+        );
+        entries = [...entries, ...subEntries.flat()];
+      }
+    }
+
     let data: {
       contents: Record<string, any>[],
       errors: string[]
@@ -93,7 +107,7 @@ export async function GET(
       if (type === "search" && query) {
         const searchQuery = query.toLowerCase();
         const searchFields = Array.isArray(fields) ? fields : fields ? [fields] : [];
-        
+
         data.contents = data.contents.filter(item => {
           if (searchFields.length === 0) {
             if (
@@ -105,22 +119,32 @@ export async function GET(
 
             return item.content && item.content.toLowerCase().includes(searchQuery);
           }
-          
+
           return searchFields.some(field => {
             if (field === 'name' || field === 'path') {
               const value = item[field];
               return value && String(value).toLowerCase().includes(searchQuery);
             }
-            
+
             if (field.startsWith('fields.')) {
               const fieldPath = field.replace('fields.', '');
               const value = safeAccess(item.fields, fieldPath);
               return value && String(value).toLowerCase().includes(searchQuery);
             }
-            
+
+            // Treat bare field names as item.fields.*
+            if (item.fields) {
+              const value = safeAccess(item.fields, field);
+              return value && String(value).toLowerCase().includes(searchQuery);
+            }
+
             return false;
           });
         });
+      }
+
+      if (limit) {
+        data.contents = data.contents.slice(0, limit);
       }
     }
 

@@ -20,7 +20,8 @@ const EditComponent = forwardRef((props: any, ref: React.Ref<HTMLInputElement>) 
       path: collection.path,
       type: "search",
       query: "{input}",
-      fields: field.options?.search || "name"
+      fields: field.options?.search || "name",
+      limit: String(field.options?.limit ?? 50),
     },
     minlength: 0,
     results: "data.contents",
@@ -28,7 +29,18 @@ const EditComponent = forwardRef((props: any, ref: React.Ref<HTMLInputElement>) 
     label: field.options?.label || "{name}",
     image: field.options?.image,
     headers: {},
-  }), [config.owner, config.repo, config.branch, field.options]);
+  }), [
+    config.owner,
+    config.repo,
+    config.branch,
+    field.options.collection,
+    field.options?.search,
+    field.options?.limit,
+    field.options?.value,
+    field.options?.label,
+    field.options?.image,
+    collection.path,
+  ]);
 
   return <SelectEditComponent {...props} field={{ ...field, options: { ...field.options, fetch: fetchConfig }}} ref={ref} />;
 });

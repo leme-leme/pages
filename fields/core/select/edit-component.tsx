@@ -195,11 +195,14 @@ const EditComponent = forwardRef((props: any, ref: any) => {
       ref={ref}
       isMulti={field.options?.multiple}
       isClearable={true}
+      hideSelectedOptions={false}
       classNamePrefix="react-select"
       placeholder={field.options?.placeholder || "Select..."}
-      components={{ 
-        DropdownIndicator, 
-        ClearIndicator, 
+      noOptionsMessage={({ inputValue }: { inputValue: string }) => inputValue ? "No results" : "Type to search"}
+      loadingMessage={() => "Loading..."}
+      components={{
+        DropdownIndicator,
+        ClearIndicator,
         MultiValueRemove,
         Option,
         SingleValue,
