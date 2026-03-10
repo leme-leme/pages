@@ -181,10 +181,16 @@ const parseContents = (
     if (item.type === "file" && (item.path.endsWith(`.${schema.extension}`) || schema.extension === "") && !excludedFiles.includes(item.name)) {
       let contentObject: Record<string, any> = {};
       
-      if (serializedTypes.includes(schema.format)) {
+      // For markdown files with no schema fields, format defaults to "code" — but they may still have frontmatter
+      const markdownExtensions = ["md", "mdx", "markdown"];
+      const effectiveFormat = schema.format === "code" && markdownExtensions.includes(schema.extension)
+        ? "yaml-frontmatter"
+        : schema.format;
+
+      if (serializedTypes.includes(effectiveFormat)) {
         // Always parse the frontmatter to get all fields
         try {
-          const rawParsed = parse(item.content, { format: schema.format, delimiters: schema.delimiters });
+          const rawParsed = parse(item.content, { format: effectiveFormat, delimiters: schema.delimiters });
           if (schema.fields && schema.fields.length > 0) {
             // Apply schema field transformations via deepMap
             // TODO: review if this works for blocks
