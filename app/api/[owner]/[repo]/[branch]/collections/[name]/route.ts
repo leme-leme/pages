@@ -181,17 +181,28 @@ const parseContents = (
     if (item.type === "file" && (item.path.endsWith(`.${schema.extension}`) || schema.extension === "") && !excludedFiles.includes(item.name)) {
       let contentObject: Record<string, any> = {};
       
-      if (serializedTypes.includes(schema.format) && schema.fields) {
-        // If we are dealing with a serialized format and we have fields defined
+      if (serializedTypes.includes(schema.format)) {
+        // Always parse the frontmatter to get all fields
         try {
-          contentObject = parse(item.content, { format: schema.format, delimiters: schema.delimiters });
-          // TODO: review if this works for blocks
-          contentObject = deepMap(contentObject, schema.fields, (value, field) => {
-            if (typeof field.type === 'string' && readFns[field.type]) {
-              return readFns[field.type](value, field, config);
-            }
-            return value;
-          });
+          const rawParsed = parse(item.content, { format: schema.format, delimiters: schema.delimiters });
+          if (schema.fields && schema.fields.length > 0) {
+            // Apply schema field transformations via deepMap
+            // TODO: review if this works for blocks
+            contentObject = deepMap(rawParsed, schema.fields, (value, field) => {
+              if (typeof field.type === 'string' && readFns[field.type]) {
+                return readFns[field.type](value, field, config);
+              }
+              return value;
+            });
+            // Also include any raw frontmatter fields not covered by schema (e.g. for reference label/value)
+            Object.keys(rawParsed).forEach(key => {
+              if (!(key in contentObject)) {
+                contentObject[key] = rawParsed[key];
+              }
+            });
+          } else {
+            contentObject = rawParsed;
+          }
         } catch (error: any) {
           // TODO: send this to the client?
           console.error(`Error parsing frontmatter for file "${item.path}": ${error.message}`);
@@ -200,7 +211,7 @@ const parseContents = (
       }
 
       if (!schema.fields || schema.fields.length === 0) {
-        // If we don't have fields defined, we just add the name for display
+        // If we don't have fields defined, we still add the name for display
         contentObject.name = item.name;
       }
       
