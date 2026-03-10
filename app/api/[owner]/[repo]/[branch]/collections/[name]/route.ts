@@ -143,6 +143,11 @@ export async function GET(
         });
       }
 
+      // For search requests, exclude directory entries (only files are useful as reference options)
+      if (type === "search") {
+        data.contents = data.contents.filter((item: any) => item.type !== "dir");
+      }
+
       if (limit) {
         data.contents = data.contents.slice(0, limit);
       }
