@@ -48,6 +48,7 @@ export async function GET(
     const query = searchParams.get("query") || "";
     const fields = searchParams.get("fields")?.split(",") || ["name"];
     const limit = searchParams.get("limit") ? parseInt(searchParams.get("limit")!, 10) : null;
+    const offset = searchParams.get("offset") ? parseInt(searchParams.get("offset")!, 10) : 0;
 
     const normalizedPath = normalizePath(path);
     if (!normalizedPath.startsWith(schema.path)) throw new Error(`Invalid path "${path}" for collection "${params.name}".`);
@@ -146,6 +147,10 @@ export async function GET(
       // For search requests, exclude directory entries (only files are useful as reference options)
       if (type === "search") {
         data.contents = data.contents.filter((item: any) => item.type !== "dir");
+      }
+
+      if (offset > 0) {
+        data.contents = data.contents.slice(offset);
       }
 
       if (limit) {
