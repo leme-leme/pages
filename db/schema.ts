@@ -93,7 +93,9 @@ const cacheFileTable = sqliteTable("cache_file", {
   downloadUrl: text("download_url"),
   commitSha: text('commit_sha'),
   commitTimestamp: integer('commit_timestamp', { mode: "timestamp" }),
-  lastUpdated: integer("last_updated", { mode: "timestamp" }).notNull()
+  lastUpdated: integer("last_updated", { mode: "timestamp" }).notNull(),
+  provider: text("provider").notNull().default("github"),
+  s3Key: text("s3_key")
 }, table => ({
   idx_cache_file_owner_repo_branch_parentPath: index("idx_cache_file_owner_repo_branch_parentPath").on(table.owner, table.repo, table.branch, table.parentPath),
   idx_cache_file_owner_repo_branch_path: uniqueIndex("idx_cache_file_owner_repo_branch_path").on(table.owner, table.repo, table.branch, table.path)

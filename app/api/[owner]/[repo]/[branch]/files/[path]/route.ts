@@ -9,6 +9,7 @@ import { getFileExtension, getFileName, normalizePath, serializedTypes, getParen
 import { getAuth } from "@/lib/auth";
 import { getToken } from "@/lib/token";
 import { updateFileCache } from "@/lib/githubCache";
+import { isS3Configured, S3_THRESHOLD_BYTES, s3Upload, s3PublicUrl } from "@/lib/storage/s3";
 import mergeWith from "lodash.mergewith";
 
 /**
@@ -79,7 +80,7 @@ export async function POST(
             }
             
             // Use mapBlocks to convert config blocks array to a map
-            const zodSchema = generateZodSchema(contentFields);
+            const zodSchema = generateZodSchema(contentFields, false, config?.object);
             const zodValidation = zodSchema.safeParse(contentObject);
             
             if (zodValidation.success === false ) {
@@ -144,14 +145,14 @@ export async function POST(
           }
         }
         break;
-      case "media":
+      case "media": {
         if (!data.name) throw new Error(`"name" is required for media.`);
 
         schema = getSchemaByName(config?.object, data.name, "media");
         if (!schema) throw new Error(`Media schema not found for ${data.name}.`);
 
         if (!normalizedPath.startsWith(schema.input)) throw new Error(`Invalid path "${params.path}" for media "${data.name}".`);
-        
+
         if (getFileName(normalizedPath) === ".gitkeep") {
           // Folder creation
           contentBase64 = "";
@@ -161,13 +162,70 @@ export async function POST(
             !schema.extensions.includes(getFileExtension(normalizedPath))
           ) throw new Error(`Invalid extension "${getFileExtension(normalizedPath)}" for media.`);
 
+          // Route large files to S3 if configured
+          const fileBuffer = Buffer.from(data.content, "base64");
+          if (isS3Configured() && fileBuffer.length > S3_THRESHOLD_BYTES) {
+            const baseUrl = process.env.BASE_URL ?? "https://pages.leme.work";
+            const ext = getFileExtension(normalizedPath);
+            const mimeTypes: Record<string, string> = {
+              jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png",
+              gif: "image/gif", webp: "image/webp", svg: "image/svg+xml",
+              mp4: "video/mp4", webm: "video/webm", mov: "video/quicktime",
+              pdf: "application/pdf",
+            };
+            const contentType = mimeTypes[ext] ?? "application/octet-stream";
+
+            const { key, size } = await s3Upload(
+              params.owner, params.repo, params.branch,
+              normalizedPath, fileBuffer, contentType
+            );
+            const url = s3PublicUrl(baseUrl, key);
+
+            // Record in Postgres cache
+            await updateFileCache(
+              "media",
+              params.owner, params.repo, params.branch,
+              {
+                type: "add",
+                path: normalizedPath,
+                sha: key,          // use S3 key as the sha-equivalent identifier
+                size,
+                downloadUrl: url,
+                provider: "s3",
+                s3Key: key,
+                commit: { sha: "", timestamp: Date.now() },
+              }
+            );
+
+            return Response.json({
+              status: "success",
+              message: `File "${normalizedPath}" saved to S3 storage (${(size / 1024 / 1024).toFixed(1)} MB).`,
+              data: {
+                type: "file",
+                sha: null,
+                name: getFileName(normalizedPath),
+                path: normalizedPath,
+                extension: ext,
+                size,
+                url,
+                provider: "s3",
+              }
+            });
+          }
+
           contentBase64 = data.content;
         }
         break;
+      }
       case "settings":
         if (normalizedPath !== ".pages.yml") throw new Error(`Invalid path "${params.path}" for settings.`);
 
         contentBase64 = Buffer.from(data.content.body ?? "").toString("base64");
+        break;
+      case "raw":
+        contentBase64 = Buffer.from(
+          typeof data.content === "string" ? data.content : JSON.stringify(data.content, null, 2)
+        ).toString("base64");
         break;
       default:
         throw new Error(`Invalid type "${data.type}".`);
@@ -418,5 +476,45 @@ export async function DELETE(
       status: "error",
       message: error.message,
     });
+  }
+};
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { owner: string, repo: string, branch: string, path: string } }
+) {
+  try {
+    const { user, session } = await getAuth();
+    if (!session) return new Response(null, { status: 401 });
+
+    const token = await getToken(user, params.owner, params.repo);
+    if (!token) throw new Error("Token not found");
+
+    const octokit = createOctokitInstance(token);
+    const normalizedPath = normalizePath(params.path);
+
+    const response = await octokit.rest.repos.getContent({
+      owner: params.owner,
+      repo: params.repo,
+      path: normalizedPath,
+      ref: params.branch,
+    });
+
+    if (Array.isArray(response.data) || response.data.type !== "file") {
+      throw new Error("Not a file");
+    }
+
+    const content = Buffer.from(response.data.content, "base64").toString("utf-8");
+
+    return Response.json({
+      status: "success",
+      data: {
+        content,
+        sha: response.data.sha,
+        path: normalizedPath,
+      }
+    });
+  } catch (error: any) {
+    return Response.json({ status: "error", message: error.message });
   }
 };

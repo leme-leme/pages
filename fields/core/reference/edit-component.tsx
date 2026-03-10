@@ -42,7 +42,7 @@ const EditComponent = forwardRef((props: any, ref: React.Ref<HTMLInputElement>) 
     collection.path,
   ]);
 
-  return <SelectEditComponent {...props} field={{ ...field, options: { ...field.options, fetch: fetchConfig }}} ref={ref} />;
+  return <SelectEditComponent {...props} field={{ ...field, options: { ...field.options, multiple: field.options?.multiple ?? field.multiple, fetch: fetchConfig }}} ref={ref} />;
 });
 
 export { EditComponent };

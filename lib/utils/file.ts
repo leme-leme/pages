@@ -42,6 +42,7 @@ function getFileName(path: string): string {
 }
 
 function normalizePath(path: string): string {
+  if (!path) return "";
   const pathSegments = path.replace("//", "/").replace(/\/+$/, "").split("/");
 
   const normalizedPathSegments = pathSegments.reduce((acc: string[], segment: string) => {

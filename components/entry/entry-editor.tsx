@@ -13,6 +13,7 @@ import {
   normalizePath
 } from "@/lib/utils/file";
 import { EntryForm } from "./entry-form";
+import { LocaleProvider } from "@/contexts/locale-context";
 import { EmptyCreate } from "@/components/empty-create";
 import { FileOptions } from "@/components/file/file-options";
 import { Message } from "@/components/message";
@@ -57,7 +58,18 @@ export function EntryEditor({
   }, [config, name]);
   
   let entryFields = useMemo(() => {
-    return !schema?.fields || schema.fields.length === 0
+    const injectLocales = (fields: any[], locales: string[]): any[] =>
+      fields.map((f: any) => {
+        if (!f) return f;
+        if (f.type === 'i18n' && !f.options?.languages) {
+          return { ...f, options: { ...f.options, languages: locales } };
+        }
+        if (f.fields) return { ...f, fields: injectLocales(f.fields, locales) };
+        if (f.blocks) return { ...f, blocks: injectLocales(f.blocks, locales) };
+        return f;
+      });
+
+    const baseFields = !schema?.fields || schema.fields.length === 0
       ? [{
           name: "body",
           type: "code",
@@ -81,6 +93,9 @@ export function EntryEditor({
             fields: schema.fields
           }]
         : schema.fields;
+
+    const locales = schema?.locales;
+    return locales?.length ? injectLocales(baseFields, locales) : baseFields;
   }, [schema, entry, path]);
 
   let entryContentObject = useMemo(() => {
@@ -345,7 +360,9 @@ export function EntryEditor({
     }
   }
   
-  return (
+  const locales = schema?.locales?.length ? schema.locales : null;
+
+  const form = (
     isLoading
       ? loadingSkeleton
       : <EntryForm
@@ -380,6 +397,25 @@ export function EntryEditor({
             </Button>
           </FileOptions>
         }
+        previewUrlTemplate={
+          config.object?.preview === false
+            ? undefined
+            : schema?.preview_url ||
+              (config.object?.site_url
+                ? schema?.preview_path
+                  ? `${config.object.site_url.replace(/\/$/, "")}${schema.preview_path}`
+                  : (() => {
+                      const handleField = schema?.fields?.find((f: any) => ['handle', 'slug', 'path'].includes(f.name));
+                      return handleField
+                        ? `${config.object.site_url.replace(/\/$/, "")}/{${handleField.name}}`
+                        : undefined;
+                    })()
+                : undefined)
+        }
       />
   );
+
+  return locales
+    ? <LocaleProvider locales={locales}>{form}</LocaleProvider>
+    : form;
 };

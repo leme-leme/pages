@@ -115,7 +115,8 @@ const getDefaultValue = (field: Record<string, any>) => {
 // Generate a Zod schema for validation
 const generateZodSchema = (
   fields: Field[],
-  ignoreHidden: boolean = false
+  ignoreHidden: boolean = false,
+  configObject?: Record<string, any>
 ): z.ZodTypeAny => {
   const buildSchemaObject = (currentFields: Field[]): Record<string, z.ZodTypeAny> => {
     return currentFields.reduce((acc: Record<string, z.ZodTypeAny>, field) => {
@@ -160,7 +161,7 @@ const generateZodSchema = (
       } else if (field.type && schemas[field.type]) {
         // Standard registered field type (e.g. text, number, ...)
         const fieldSchemaFn = schemas[field.type];
-        fieldSchema = fieldSchemaFn(field);
+        fieldSchema = fieldSchemaFn(field, configObject);
       } else {
         console.warn(`Unknown or invalid type "${field.type}" for field "${field.name}". Defaulting to text validation.`);
         fieldSchema = schemas["text"](field);

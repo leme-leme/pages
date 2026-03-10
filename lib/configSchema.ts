@@ -238,8 +238,8 @@ const ContentObjectSchema = z.object({
     message: "'exclude' must be an array of strings."
   }).optional(),
   view: z.object({
-    layout: z.enum(["tree", "list"], {
-      message: "'layout' must be either 'tree' or 'list'."
+    layout: z.enum(["tree", "list", "gallery"], {
+      message: "'layout' must be 'tree', 'list', or 'gallery'."
     }).optional(),
     node: z.union([
       z.object({
@@ -315,6 +315,17 @@ const ContentObjectSchema = z.object({
     { message: "'fields' must be an array of field definitions." }
   ).optional(),
   list: ListSchema.optional(),
+  preview_path: z.string({
+    message: "'preview_path' must be a string (e.g. '/blog/{slug}')."
+  }).optional().nullable(),
+  preview_url: z.string({
+    message: "'preview_url' must be a string (e.g. 'https://example.com/blog/{slug}')."
+  }).optional().nullable(),
+  locales: z.array(z.string({
+    message: "Entries in the 'locales' array must be strings."
+  }), {
+    message: "'locales' must be an array of locale strings (e.g. [nl, en])."
+  }).optional().nullable(),
 }).strict();
 
 // Main schema with media and content
@@ -348,6 +359,12 @@ const ConfigSchema = z.object({
       message: "'settings' must be a boolean or an object."
     }),
   ]).optional(),
+  site_url: z.string({
+    message: "'site_url' must be a string (e.g. 'https://example.com')."
+  }).optional().nullable(),
+  preview: z.boolean({
+    message: "'preview' must be a boolean."
+  }).optional(),
 }).strict().nullable();
 
 export { ConfigSchema };

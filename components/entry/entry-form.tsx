@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useMemo, useEffect, useRef, forwardRef, useCallback } from "react";
+import { useState, useMemo, useEffect, useRef, forwardRef, useCallback, createContext, useContext } from "react";
 import Link from "next/link";
 import {
   useForm,
   useFieldArray,
   useFormState,
-  useFormContext
+  useFormContext,
+  useWatch,
 } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { editComponents } from "@/fields/registry";
@@ -17,6 +18,7 @@ import {
   sanitizeObject
 } from "@/lib/schema";
 import { Field } from "@/types/field";
+import { useConfig } from "@/contexts/config-context";
 import { EntryHistoryBlock, EntryHistoryDropdown } from "./entry-history";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -64,15 +66,29 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   ChevronLeft,
   GripVertical,
+  Link2,
   Loader,
   Plus,
   Trash2,
+  Unlink,
   Ellipsis,
   ChevronRight,
   Dot,
+  Eye,
+  EyeOff,
+  RefreshCw,
+  ExternalLink,
 } from "lucide-react";
 import { toast } from "sonner";
 import { interpolate } from "@/lib/schema";
+import { useLocale } from "@/contexts/locale-context";
+
+// Context for the title→handle auto-link state, shared between EntryForm and SingleField
+const HandleLinkContext = createContext<{
+  isLinked: boolean;
+  setLinked: (v: boolean) => void;
+  lastAutoHandle: React.MutableRefObject<string>;
+} | null>(null);
 
 const SortableItem = ({
   id,
@@ -485,6 +501,7 @@ const SingleField = ({
   index?: number;
 }) => {
   const { control, formState: { errors } } = useFormContext();
+  const handleLinkCtx = useContext(HandleLinkContext);
   
   let FieldComponent;
 
@@ -534,31 +551,69 @@ const SingleField = ({
       </FormItem>
     );
   } else {
+    // Show link toggle for top-level handle field when linked to title
+    const isHandleField = fieldName === 'handle' && !!handleLinkCtx;
     return (
       <FormField
         name={fieldName}
         key={fieldName}
         control={control}
-        render={({ field: rhfManagedFieldProps, fieldState }) => (
-          <FormItem>
-            <div className="flex items-center h-5 gap-x-2">
-              {showLabel && field.label !== false &&
-                <FormLabel>
-                  {field.label || field.name}
-                </FormLabel>
+        render={({ field: rhfManagedFieldProps, fieldState }) => {
+          const wrappedOnChange = isHandleField
+            ? (e: any) => {
+                // Detect manual edits: if value differs from last auto-generated, unlink
+                const newVal = typeof e === 'string' ? e : e?.target?.value ?? '';
+                if (newVal !== handleLinkCtx!.lastAutoHandle.current) {
+                  handleLinkCtx!.setLinked(false);
+                }
+                rhfManagedFieldProps.onChange(e);
               }
-              {showLabel && field.required && <span className="inline-flex items-center rounded-full bg-muted border px-2 h-5 text-xs font-medium">Required</span>}
-            </div>
-            <FormControl>
-              <FieldComponent 
-                {...rhfManagedFieldProps}
-                {...fieldComponentProps}
-              />
-            </FormControl>
-            {field.description && <FormDescription>{field.description}</FormDescription>}
-            <FormMessage />
-          </FormItem>
-        )}
+            : rhfManagedFieldProps.onChange;
+
+          return (
+            <FormItem>
+              <div className="flex items-center h-5 gap-x-2">
+                {showLabel && field.label !== false &&
+                  <FormLabel>
+                    {field.label || field.name}
+                  </FormLabel>
+                }
+                {showLabel && field.required && <span className="inline-flex items-center rounded-full bg-muted border px-2 h-5 text-xs font-medium">Required</span>}
+                {showLabel && isHandleField && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        className="inline-flex items-center"
+                        onClick={() => handleLinkCtx!.setLinked(!handleLinkCtx!.isLinked)}
+                        aria-label={handleLinkCtx!.isLinked ? "Unlink from title" : "Re-sync from title"}
+                      >
+                        {handleLinkCtx!.isLinked
+                          ? <Link2 className="h-3.5 w-3.5 text-blue-500" />
+                          : <Unlink className="h-3.5 w-3.5 text-muted-foreground" />
+                        }
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">
+                      {handleLinkCtx!.isLinked
+                        ? "Auto-generated from title. Click to edit manually."
+                        : "Click to re-sync from title."}
+                    </TooltipContent>
+                  </Tooltip>
+                )}
+              </div>
+              <FormControl>
+                <FieldComponent
+                  {...rhfManagedFieldProps}
+                  {...fieldComponentProps}
+                  onChange={wrappedOnChange}
+                />
+              </FormControl>
+              {field.description && <FormDescription>{field.description}</FormDescription>}
+              <FormMessage />
+            </FormItem>
+          );
+        }}
       />
     );
   }
@@ -576,6 +631,7 @@ const EntryForm = ({
   path,
   filePath,
   options,
+  previewUrlTemplate,
 }: {
   title: string;
   navigateBack?: string;
@@ -586,12 +642,17 @@ const EntryForm = ({
   path?: string;
   filePath?: React.ReactNode;
   options: React.ReactNode;
+  previewUrlTemplate?: string;
 }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+  const [iframeKey, setIframeKey] = useState(0);
+  const locale = useLocale();
+  const { config } = useConfig();
 
   const zodSchema = useMemo(() => {
-    return generateZodSchema(fields);
-  }, [fields]);
+    return generateZodSchema(fields, false, config?.object);
+  }, [fields, config?.object]);
 
   const defaultValues = useMemo(() => {
     return initializeState(fields, sanitizeObject(contentObject));
@@ -606,6 +667,47 @@ const EntryForm = ({
   const { isDirty } = useFormState({
     control: form.control
   });
+
+  // Watch all values for URL template substitution
+  const allValues = useWatch({ control: form.control });
+  const resolvedPreviewUrl = useMemo(() => {
+    if (!previewUrlTemplate) return null;
+    return interpolate(previewUrlTemplate, allValues as Record<string, any>);
+  }, [previewUrlTemplate, allValues]);
+
+  // Auto-generate handle from title field when both fields exist
+  const hasTitleAndHandle = useMemo(() =>
+    fields.some((f: any) => f.name === 'title') && fields.some((f: any) => f.name === 'handle'),
+    [fields]
+  );
+  // Start unlinked when editing an existing entry that already has a handle
+  const [isHandleLinked, setIsHandleLinked] = useState(() => !defaultValues?.handle);
+  const lastAutoHandle = useRef<string>('');
+  const titleValue = useWatch({
+    control: form.control,
+    name: 'title' as any,
+    disabled: !hasTitleAndHandle
+  });
+  useEffect(() => {
+    if (!hasTitleAndHandle || !titleValue || !isHandleLinked) return;
+    const slug = String(titleValue)
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9\s-]/g, '')
+      .trim()
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-');
+    form.setValue('handle' as any, slug, { shouldDirty: true });
+    lastAutoHandle.current = slug;
+  }, [titleValue, hasTitleAndHandle, isHandleLinked, form]);
+
+  const handleLinkContextValue = useMemo(() =>
+    hasTitleAndHandle
+      ? { isLinked: isHandleLinked, setLinked: setIsHandleLinked, lastAutoHandle }
+      : null,
+    [hasTitleAndHandle, isHandleLinked]
+  );
 
   const renderFields = useCallback((
     fields: Field[],
@@ -635,60 +737,160 @@ const EntryForm = ({
     toast.error("Please fix the errors before saving.", { duration: 5000 });
   };
 
+  const previewPanelWidth = "clamp(300px, 45vw, 680px)";
+
   return (
+    <HandleLinkContext.Provider value={handleLinkContextValue}>
     <Form {...form}>
       <form onSubmit={form.handleSubmit(handleSubmit, handleError)}>
-        <div className="max-w-screen-xl mx-auto flex w-full gap-x-8">
-          <div className="flex-1 w-0">
-            <header className="flex items-center mb-6">
-              {navigateBack &&
-                <Link
-                  className={cn(buttonVariants({ variant: "outline", size: "icon-xs" }), "mr-4 shrink-0")}
-                  href={navigateBack}
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </Link>
-              }
 
-              <h1 className="font-semibold text-lg md:text-2xl truncate">{title}</h1>
-            </header>
-            
-            <div onSubmit={form.handleSubmit(handleSubmit)} className="grid items-start gap-6">
-              {filePath &&
-                <div className="space-y-2 overflow-hidden">
-                  <FormLabel>
-                    Filename
-                  </FormLabel>
-                  {filePath}
-                </div>
-              }
-              {renderFields(fields)}
+        {/* Preview panel — fixed left, slides in on all screen sizes */}
+        {resolvedPreviewUrl && (
+          <div
+            className={cn(
+              "fixed top-14 xl:top-0 left-0 bottom-0 z-20",
+              "flex flex-col bg-background border-r shadow-lg",
+              "transition-transform duration-300 ease-in-out",
+              showPreview ? "translate-x-0" : "-translate-x-full"
+            )}
+            style={{ width: previewPanelWidth }}
+          >
+            <div className="flex items-center gap-1 px-3 h-12 border-b shrink-0">
+              <span className="text-xs text-muted-foreground truncate flex-1">{resolvedPreviewUrl}</span>
+              <Button type="button" variant="ghost" size="icon-xs" onClick={() => setIframeKey(k => k + 1)} title="Refresh">
+                <RefreshCw className="h-3.5 w-3.5" />
+              </Button>
+              <a href={resolvedPreviewUrl} target="_blank" rel="noreferrer" className={cn(buttonVariants({ variant: "ghost", size: "icon-xs" }))} title="Open in new tab">
+                <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+              <Button type="button" variant="ghost" size="icon-xs" onClick={() => setShowPreview(false)} title="Close preview">
+                <EyeOff className="h-3.5 w-3.5" />
+              </Button>
             </div>
+            <iframe
+              key={iframeKey}
+              src={resolvedPreviewUrl}
+              className="flex-1 w-full bg-white"
+              sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
+            />
           </div>
+        )}
 
-          <div className="hidden lg:block w-64">
-            <div className="flex flex-col gap-y-4 sticky top-0">
-              <div className="flex gap-x-2">
-                <Button type="submit" className="w-full" disabled={isSubmitting || !isDirty}>
-                  Save
-                  {isSubmitting && (<Loader className="ml-2 h-4 w-4 animate-spin" />)}
-                </Button>
-                {options ? options : null}
+        {/* Form content — shifts right when preview panel is open */}
+        <div
+          className="transition-[margin] duration-300 ease-in-out"
+          style={{ marginLeft: showPreview && resolvedPreviewUrl ? previewPanelWidth : 0 }}
+        >
+          <div className="max-w-screen-xl mx-auto flex w-full gap-x-8">
+            <div className="flex-1 w-0 min-w-0">
+              <header className="flex items-center mb-6">
+                {navigateBack &&
+                  <Link
+                    className={cn(buttonVariants({ variant: "outline", size: "icon-xs" }), "mr-4 shrink-0")}
+                    href={navigateBack}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Link>
+                }
+                <h1 className="font-semibold text-lg md:text-2xl truncate">{title}</h1>
+                {locale && (
+                  <div className="ml-auto flex items-center gap-1 shrink-0">
+                    {locale.locales.map((l) => (
+                      <button
+                        key={l}
+                        type="button"
+                        onClick={() => locale.setActiveLocale(l)}
+                        className={cn(
+                          "px-3 py-1 text-sm rounded-md transition-colors",
+                          locale.activeLocale === l
+                            ? "bg-primary text-primary-foreground"
+                            : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                        )}
+                      >
+                        {locale.languageName(l)}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </header>
+
+              <div onSubmit={form.handleSubmit(handleSubmit)} className="grid items-start gap-6">
+                {filePath &&
+                  <div className="space-y-2 overflow-hidden">
+                    <FormLabel>Filename</FormLabel>
+                    {filePath}
+                  </div>
+                }
+                {renderFields(fields)}
               </div>
-              {path && history && <EntryHistoryBlock history={history} path={path} />}
             </div>
-          </div>
-          <div className="lg:hidden fixed top-0 right-0 h-14 flex items-center gap-x-2 z-10 pr-4 md:pr-6">
-            {path && history && <EntryHistoryDropdown history={history} path={path} />}
-            <Button type="submit" disabled={isSubmitting}>
-              Save
-              {isSubmitting && (<Loader className="ml-2 h-4 w-4 animate-spin" />)}
-            </Button>
-            {options ? options : null}
+
+            <div className="hidden lg:block w-64 shrink-0">
+              <div className="flex flex-col gap-y-4 sticky top-0">
+                <div className="flex gap-x-2">
+                  <Button type="submit" className="w-full" disabled={isSubmitting || !isDirty}>
+                    Save
+                    {isSubmitting && (<Loader className="ml-2 h-4 w-4 animate-spin" />)}
+                  </Button>
+                  {resolvedPreviewUrl && (
+                    <a
+                      href={resolvedPreviewUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className={cn(buttonVariants({ variant: "outline", size: "icon" }), "shrink-0")}
+                      title="Open live page"
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                    </a>
+                  )}
+                  {options ? options : null}
+                </div>
+                {resolvedPreviewUrl && (
+                  <Button
+                    type="button"
+                    variant={showPreview ? "secondary" : "outline"}
+                    size="sm"
+                    className="w-full justify-start gap-2"
+                    onClick={() => setShowPreview(v => !v)}
+                  >
+                    {showPreview ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    {showPreview ? "Hide preview" : "Show preview"}
+                  </Button>
+                )}
+                {path && history && <EntryHistoryBlock history={history} path={path} />}
+              </div>
+            </div>
+
+            <div className="lg:hidden fixed top-0 right-0 h-14 flex items-center gap-x-2 z-10 pr-4 md:pr-6">
+              {path && history && <EntryHistoryDropdown history={history} path={path} />}
+              {resolvedPreviewUrl && (
+                <Button type="button" variant={showPreview ? "secondary" : "outline"} size="icon" onClick={() => setShowPreview(v => !v)}>
+                  {showPreview ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+              )}
+              <Button type="submit" disabled={isSubmitting}>
+                Save
+                {isSubmitting && (<Loader className="ml-2 h-4 w-4 animate-spin" />)}
+              </Button>
+              {resolvedPreviewUrl && (
+                <a
+                  href={resolvedPreviewUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={cn(buttonVariants({ variant: "outline", size: "icon" }))}
+                  title="Open live page"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                </a>
+              )}
+              {options ? options : null}
+            </div>
           </div>
         </div>
+
       </form>
     </Form>
+    </HandleLinkContext.Provider>
   );
 };
 

@@ -287,7 +287,7 @@ const MediaView = ({
             <FolderPlus className="h-3.5 w-3.5"/>
           </Button>
         </FolderCreate>
-        <MediaUpload media={mediaConfig.name} path={path} onUpload={handleUpload} extensions={filteredExtensions}>
+        <MediaUpload media={mediaConfig.name} path={path} onUpload={handleUpload} extensions={filteredExtensions} multiple={true}>
           <MediaUpload.Trigger>
             <Button type="button" size="sm" className="gap-2">
               <Upload className="h-3.5 w-3.5"/>
@@ -296,7 +296,7 @@ const MediaView = ({
           </MediaUpload.Trigger>
         </MediaUpload>
       </header>
-      <MediaUpload media={mediaConfig.name} path={path} onUpload={handleUpload} extensions={filteredExtensions}>
+      <MediaUpload media={mediaConfig.name} path={path} onUpload={handleUpload} extensions={filteredExtensions} multiple={true}>
         <MediaUpload.DropZone className="flex-1 overflow-auto scrollbar">
           <div className="h-full relative flex flex-col" ref={filesGridRef}>
             {isLoading
