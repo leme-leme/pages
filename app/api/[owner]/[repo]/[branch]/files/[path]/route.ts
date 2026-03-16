@@ -165,7 +165,7 @@ export async function POST(
           // Route large files to S3 if configured
           const fileBuffer = Buffer.from(data.content, "base64");
           if (isS3Configured() && fileBuffer.length > S3_THRESHOLD_BYTES) {
-            const baseUrl = process.env.BASE_URL || "";
+            const baseUrl = process.env.BASE_URL ?? "https://pages.leme.work";
             const ext = getFileExtension(normalizedPath);
             const mimeTypes: Record<string, string> = {
               jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png",

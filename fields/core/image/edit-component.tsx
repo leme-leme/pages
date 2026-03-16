@@ -62,7 +62,7 @@ const ImageTeaser = ({ file, config, media, mediaConfig, onRemove }: {
               </a>
             </TooltipTrigger>
             <TooltipContent>
-              See on GitHub
+              View on GitHub
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
@@ -81,7 +81,7 @@ const ImageTeaser = ({ file, config, media, mediaConfig, onRemove }: {
               </Button>
             </TooltipTrigger>
             <TooltipContent>
-              Remove
+              Remove from gallery
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>

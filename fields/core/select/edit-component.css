@@ -80,6 +80,10 @@
   @apply !pl-2;
 }
 
+.react-select__menu-list--is-multi .react-select__option--is-selected {
+  @apply !bg-accent bg-none;
+}
+
 .react-select__option--is-focused {
   @apply !bg-accent;
 }
