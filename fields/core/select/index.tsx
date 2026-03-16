@@ -26,17 +26,17 @@ const schema = (field: Field) => {
   }
 
   if (field.options?.multiple) {
-    zodSchema = z.array(zodSchema);
-
-    if (field.required) zodSchema = zodSchema.min(1, "This field is required");
+    const arraySchema = z.array(zodSchema);
+    const minSchema = field.required ? arraySchema.min(1, "This field is required") : arraySchema;
 
     zodSchema = z.preprocess(
       (val) => {
-        if (val === "" || val === null) return [];
-        // Ensure array values are converted to strings
-        return Array.isArray(val) ? val.map(String) : val;
+        if (val === "" || val === null || val === undefined) return [];
+        if (Array.isArray(val)) return val.map(String);
+        if (typeof val === "string") return val.split(",").map((s) => s.trim()).filter(Boolean);
+        return val;
       },
-      zodSchema
+      minSchema
     );
   }
   
