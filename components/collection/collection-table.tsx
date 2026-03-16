@@ -152,7 +152,8 @@ export function CollectionTable<TData extends TableData>({
 
   return (
     <div className="space-y-2">
-      <Table className="border-separate border-spacing-0 text-base"> 
+      <div className="overflow-x-auto">
+      <Table className="border-separate border-spacing-0 text-base">
         <TableHeader>
           {table.getHeaderGroups().map((headerGroup) => (
             <TableRow key={headerGroup.id} className="sticky -top-4 md:-top-6 z-20 bg-background hover:bg-background">
@@ -231,14 +232,14 @@ export function CollectionTable<TData extends TableData>({
                             </Link>
                         }
                       </TableCell>
-                      <TableCell className="px-3 first:pl-0 last:pr-0 border-b py-0 h-14">
-                        {
-                          (() => {
-                            const lastCell = row.getVisibleCells()[row.getVisibleCells().length - 1];
-                            return flexRender(lastCell.column.columnDef.cell, lastCell.getContext());
-                          })()
-                        }
-                      </TableCell>
+                      {(() => {
+                        const lastCell = row.getVisibleCells()[row.getVisibleCells().length - 1];
+                        return (
+                          <TableCell className={cn("px-3 first:pl-0 last:pr-0 border-b py-0 h-14", lastCell.column.columnDef.meta?.className)}>
+                            {flexRender(lastCell.column.columnDef.cell, lastCell.getContext())}
+                          </TableCell>
+                        );
+                      })()}
                       </>
                     : row.getVisibleCells().map((cell, index) => (
                       <TableCell
@@ -291,7 +292,8 @@ export function CollectionTable<TData extends TableData>({
           )}
         </TableBody>
       </Table>
-      { (table.getCanPreviousPage() || table.getCanNextPage()) && 
+      </div>
+      { (table.getCanPreviousPage() || table.getCanNextPage()) &&
         <footer className="flex gap-x-2 items-center">
           <div className="text-muted-foreground text-sm mr-auto">
             {`Page ${table.getState().pagination.pageIndex + 1} of ${table.getPageCount()}`}

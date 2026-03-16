@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useConfig } from "@/contexts/config-context";
@@ -14,6 +14,7 @@ import { viewComponents } from "@/fields/registry";
 import { getSchemaByName, getPrimaryField, getFieldByPath, safeAccess } from "@/lib/schema";
 import { EmptyCreate } from "@/components/empty-create";
 import { FileOptions } from "@/components/file/file-options";
+import { Thumbnail } from "@/components/thumbnail";
 import { CollectionTable } from "./collection-table";
 import { FolderCreate} from "@/components/folder-create";
 import { Message } from "@/components/message";
@@ -35,13 +36,197 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
+  ArrowUpRight,
   CornerLeftUp,
   Ellipsis,
   FolderPlus,
+  GripVertical,
+  Loader,
   Plus,
   Search
 } from "lucide-react";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
+import { CSS } from "@dnd-kit/utilities";
+
+// Gallery card for gallery layout
+function GalleryCard({ item, primaryField, imageField, mediaName, mediaConfig, config, name, onDelete, onRename }: {
+  item: Record<string, any>;
+  primaryField: string;
+  imageField: string | null;
+  mediaName: string | undefined;
+  mediaConfig: any;
+  config: any;
+  name: string;
+  onDelete: (path: string) => void;
+  onRename: (path: string, newPath: string) => void;
+}) {
+  const label = String(safeAccess(item.fields, primaryField) ?? item.name);
+  const imagePath = imageField ? safeAccess(item.fields, imageField) : null;
+  const resolvedImage = Array.isArray(imagePath) ? imagePath[0] : (imagePath ?? null);
+
+  // Convert stored output path → repo input path for GitHub link
+  const repoPath = useMemo(() => {
+    if (!resolvedImage || !mediaConfig) return resolvedImage?.replace(/^\//, '') ?? resolvedImage;
+    const outputPrefix = (mediaConfig.output ?? "").replace(/\/$/, "");
+    const inputPrefix = (mediaConfig.input ?? "").replace(/\/$/, "");
+    const normalizedFile = resolvedImage.startsWith("/") ? resolvedImage : "/" + resolvedImage;
+    const normalizedOutput = outputPrefix.startsWith("/") ? outputPrefix : "/" + outputPrefix;
+    if (normalizedOutput && (normalizedFile === normalizedOutput || normalizedFile.startsWith(normalizedOutput + "/"))) {
+      const rest = normalizedFile.slice(normalizedOutput.length);
+      return (inputPrefix + rest).replace(/^\//, "");
+    }
+    return resolvedImage.replace(/^\//, "");
+  }, [resolvedImage, mediaConfig]);
+
+  return (
+    <div className="group relative border rounded-md overflow-hidden bg-background flex flex-col">
+      <div className="relative aspect-[4/3] bg-muted overflow-hidden">
+        <Link
+          href={`/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/collection/${encodeURIComponent(name)}/edit/${encodeURIComponent(item.path)}`}
+          prefetch={true}
+          className="block w-full h-full"
+        >
+          {resolvedImage
+            ? <Thumbnail name={mediaName ?? ""} path={resolvedImage} className="w-full h-full object-cover" />
+            : <div className="w-full h-full flex items-center justify-center text-muted-foreground text-xs">No image</div>
+          }
+        </Link>
+        {resolvedImage && repoPath && (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <a
+                  href={`https://github.com/${config.owner}/${config.repo}/blob/${config.branch}/${repoPath}`}
+                  target="_blank"
+                  className={cn(buttonVariants({ variant: "secondary", size: "icon-xs" }), "absolute bottom-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition-opacity")}
+                  onClick={e => e.stopPropagation()}
+                >
+                  <ArrowUpRight className="h-3.5 w-3.5" />
+                </a>
+              </TooltipTrigger>
+              <TooltipContent>View on GitHub</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
+      </div>
+      <div className="flex items-center gap-1 px-2 py-1.5 min-w-0">
+        <span className="text-sm font-medium truncate flex-1 min-w-0">{label}</span>
+        <div className="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+          <Link
+            className={cn(buttonVariants({ variant: "outline", size: "sm" }), "h-7 text-xs")}
+            href={`/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/collection/${encodeURIComponent(name)}/edit/${encodeURIComponent(item.path)}`}
+            prefetch={true}
+          >
+            Edit
+          </Link>
+          <FileOptions path={item.path} sha={item.sha} type="collection" name={name} onDelete={onDelete} onRename={onRename}>
+            <Button variant="outline" size="icon-sm" className="w-7 h-7">
+              <Ellipsis className="h-3.5 w-3.5" />
+            </Button>
+          </FileOptions>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Inline sortable row — shows order number + all view columns + grip handle
+function SortableTableRow({ item, index, showOrderNumber, sortField, primaryField, viewFields, config, name, onDelete, onRename }: {
+  item: Record<string, any>;
+  index: number;
+  showOrderNumber: boolean;
+  sortField: string | undefined;
+  primaryField: string;
+  viewFields: any[];
+  config: any;
+  name: string;
+  onDelete: (path: string) => void;
+  onRename: (path: string, newPath: string) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.path });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+    zIndex: isDragging ? 10 : 0,
+    position: 'relative' as const,
+  };
+  const editHref = `/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/collection/${encodeURIComponent(name)}/edit/${encodeURIComponent(item.path)}`;
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="flex items-center border-b last:border-b-0 h-12 bg-background hover:bg-muted/50"
+    >
+      <button
+        type="button"
+        {...attributes}
+        {...listeners}
+        className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground px-2 shrink-0 self-stretch flex items-center"
+        style={{ touchAction: 'none' }}
+        tabIndex={-1}
+      >
+        <GripVertical className="h-4 w-4" />
+      </button>
+      {showOrderNumber && (
+        <span className="w-7 text-xs text-muted-foreground text-right shrink-0 pr-3 tabular-nums">
+          {index + 1}
+        </span>
+      )}
+      {viewFields.filter((pf: any) => !(showOrderNumber && pf.field.name === sortField)).map((pathAndField: any) => {
+        const fieldPath = pathAndField.path;
+        const field = pathAndField.field;
+        const cellValue = safeAccess(item.fields, fieldPath);
+        const FieldComponent = viewComponents?.[field.type] as any;
+        const content = FieldComponent
+          ? <FieldComponent value={cellValue} field={field} />
+          : Array.isArray(cellValue) ? cellValue.join(', ') : String(cellValue ?? '');
+        if (field.name === primaryField) {
+          return (
+            <Link key={fieldPath} href={editHref} prefetch={true} className="font-medium truncate flex-1 min-w-0 px-3">
+              {content}
+            </Link>
+          );
+        }
+        return (
+          <div key={fieldPath} className="truncate w-28 shrink-0 px-3 text-sm text-muted-foreground">
+            {content}
+          </div>
+        );
+      })}
+      <div className="flex gap-1 justify-end shrink-0 px-2 ml-auto">
+        <Link
+          className={cn(buttonVariants({ variant: "outline", size: "sm" }), "h-8")}
+          href={editHref}
+          prefetch={true}
+        >
+          Edit
+        </Link>
+        <FileOptions path={item.path} sha={item.sha} type="collection" name={name} onDelete={onDelete} onRename={onRename}>
+          <Button variant="outline" size="icon-sm" className="w-8 h-8">
+            <Ellipsis className="h-4 w-4" />
+          </Button>
+        </FileOptions>
+      </div>
+    </div>
+  );
+}
 
 export function CollectionView({
   name,
@@ -54,6 +239,9 @@ export function CollectionView({
   const [data, setData] = useState<Record<string, any>[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [reorderData, setReorderData] = useState<Record<string, any>[]>([]);
+  const [orderSha, setOrderSha] = useState<string | null>(null);
+  const [isSavingOrder, setIsSavingOrder] = useState(false);
 
   const searchParams = useSearchParams();
   const pathname = usePathname();
@@ -115,6 +303,55 @@ export function CollectionView({
   }, [schema]);
 
   const primaryField = useMemo(() => getPrimaryField(schema) ?? "name", [schema]);
+
+  // Detect whether this collection has a date field (if so, skip drag-to-reorder feature)
+  const hasDateField = useMemo(() =>
+    viewFields.some((vf: any) => vf.field.type === 'date' || vf.field.name === 'date'),
+    [viewFields]
+  );
+
+  // The configured sort field name if it exists as a real field in the collection schema
+  // When present, reorder saves by updating each file's frontmatter sort field value (1, 2, 3...)
+  // When absent, reorder saves to _order.json
+  const sortField = schema.view?.default?.sort;
+  const hasFrontmatterSort = useMemo(() =>
+    !!sortField && viewFields.some((vf: any) => vf.field.name === sortField),
+    [sortField, viewFields]
+  );
+
+  // Collections that can be reordered:
+  // - No date field and no explicit sort field → _order.json approach
+  // - Has a configured sort field that exists in the schema → frontmatter approach
+  const canReorder = (!hasDateField && !sortField) || hasFrontmatterSort;
+
+  // Sync reorderData whenever data is refreshed (resets any unsaved drag changes)
+  useEffect(() => {
+    setReorderData([...data]);
+  }, [data]);
+
+  // True when user has dragged items into a different order than what's saved
+  const isDirty = useMemo(
+    () => reorderData.length > 0 && reorderData.some((item, idx) => item.path !== data[idx]?.path),
+    [reorderData, data]
+  );
+
+  const isGalleryLayout = schema.view?.layout === 'gallery';
+
+  // For gallery layout: find the first image field in the schema to use as thumbnail
+  const imageField = useMemo(() =>
+    isGalleryLayout ? (schema.fields?.find((f: any) => f.type === 'image')?.name ?? null) : null,
+    [isGalleryLayout, schema.fields]
+  );
+  const mediaConfig = useMemo(() =>
+    config?.object?.media?.[0],
+    [config?.object?.media]
+  );
+  const mediaName = mediaConfig?.name;
+
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
 
   const fetchCollectionData = useCallback(async (fetchPath: string): Promise<Record<string, any>[] | undefined> => {
     if (!config) return undefined;
@@ -310,6 +547,7 @@ export function CollectionView({
     tableColumns.push({
       accessorKey: "actions",
       header: "Actions",
+      meta: { className: "sticky right-0 bg-background [tr:hover_&]:bg-muted/50 shadow-[inset_4px_0_6px_-4px_rgba(0,0,0,0.06)]" },
       cell: ({ row }: { row: any }) => (
         <div className="flex gap-1 justify-end">
           {row.original.type === 'file' &&
@@ -409,6 +647,38 @@ export function CollectionView({
     };
   }, [schema, primaryField, viewFields]);
 
+  // Load _order.json and apply sort order to fetched data
+  const applyOrder = useCallback(async (fetchedData: Record<string, any>[], collectionPath: string) => {
+    if (!config || hasDateField) return fetchedData;
+    // For frontmatter-sorted collections, sort by the sort field value numerically
+    if (hasFrontmatterSort && sortField) {
+      return [...fetchedData].sort((a, b) => {
+        const aVal = Number(safeAccess(a.fields, sortField) ?? Infinity);
+        const bVal = Number(safeAccess(b.fields, sortField) ?? Infinity);
+        return aVal - bVal;
+      });
+    }
+    try {
+      const orderPath = `${collectionPath.replace(/\/$/, "")}/_order.json`;
+      const res = await fetch(`/api/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/files/${encodeURIComponent(orderPath)}`);
+      const json = await res.json();
+      if (json.status === "success" && json.data.sha) {
+        setOrderSha(json.data.sha);
+        const order: string[] = JSON.parse(json.data.content);
+        if (Array.isArray(order)) {
+          const map = new Map(fetchedData.map((d: any) => [d.name, d]));
+          const sorted: Record<string, any>[] = [];
+          order.forEach(name => { if (map.has(name)) sorted.push(map.get(name)!); });
+          fetchedData.forEach(d => { if (!order.includes(d.name)) sorted.push(d); });
+          return sorted;
+        }
+      }
+    } catch {
+      // _order.json not found or invalid — ignore
+    }
+    return fetchedData;
+  }, [config, hasDateField, hasFrontmatterSort]);
+
   useEffect(() => {
     const currentPath = schema.view?.layout === 'tree'
       ? schema.path
@@ -419,9 +689,10 @@ export function CollectionView({
     setError(null);
 
     fetchCollectionData(currentPath)
-      .then(fetchedData => {
+      .then(async fetchedData => {
         if (isMounted && fetchedData) {
-          setData(fetchedData);
+          const ordered = await applyOrder(fetchedData, currentPath);
+          if (isMounted) setData(ordered);
         }
       })
       .finally(() => {
@@ -431,7 +702,70 @@ export function CollectionView({
       });
 
     return () => { isMounted = false };
-  }, [fetchCollectionData, path, schema.path, schema.view?.layout]);
+  }, [fetchCollectionData, applyOrder, path, schema.path, schema.view?.layout]);
+
+  const handleSaveOrder = useCallback(async () => {
+    if (!config) return;
+    setIsSavingOrder(true);
+    try {
+      if (hasFrontmatterSort && sortField) {
+        // Collect all files that need a new order value
+        const fileItems = reorderData.filter((d: any) => d.type !== 'dir');
+        const toUpdate = fileItems
+          .map((item: any, idx: number) => {
+            const newVal = idx + 1;
+            const currentVal = safeAccess(item.fields, sortField);
+            return String(currentVal) === String(newVal) ? null : { item, newVal };
+          })
+          .filter(Boolean) as Array<{ item: any; newVal: number }>;
+
+        if (toUpdate.length > 0) {
+          // Batch all frontmatter updates into a single commit
+          const res = await fetch(
+            `/api/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/files-batch`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                name,
+                message: `Reorder ${name} (via Pages CMS)`,
+                updates: toUpdate.map(({ item, newVal }) => ({
+                  path: item.path,
+                  sha: item.sha,
+                  content: { ...item.fields, [sortField]: newVal },
+                })),
+              }),
+            }
+          );
+          const json = await res.json();
+          if (json.status !== 'success') throw new Error(json.message);
+        }
+
+        // Update local data with new field values (this also resets isDirty via the useEffect)
+        setData(reorderData.map((item: any, idx: number) =>
+          item.type === 'dir' ? item : { ...item, fields: { ...item.fields, [sortField]: idx + 1 } }
+        ));
+      } else {
+        // Write _order.json with filename order
+        const collectionPath = path || schema.path;
+        const orderPath = `${collectionPath.replace(/\/$/, "")}/_order.json`;
+        const res = await fetch(`/api/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/files/${encodeURIComponent(orderPath)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "raw", content: reorderData.map((d: any) => d.name), sha: orderSha ?? undefined }),
+        });
+        const json = await res.json();
+        if (json.status !== "success") throw new Error(json.message);
+        setOrderSha(json.data.sha ?? null);
+        setData(reorderData);
+      }
+      toast.success("Order saved.");
+    } catch (err: any) {
+      toast.error(`Failed to save order: ${err.message}`);
+    } finally {
+      setIsSavingOrder(false);
+    }
+  }, [config, path, schema.path, hasFrontmatterSort, sortField, reorderData, orderSha, name]);
 
   const handleNavigate = (newPath: string) => {
     // setPath(newPath);
@@ -558,40 +892,127 @@ export function CollectionView({
             <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 opacity-50 pointer-events-none"/>
             <Input className="h-9 pl-9" value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
-          {schema.subfolders !== false && (
+          {schema.subfolders !== false && !isDirty && (
             <FolderCreate path={path || schema.path} type="content" name={name} onCreate={handleFolderCreate}>
               <Button type="button" variant="outline" className="ml-auto shrink-0" size="icon-sm">
                 <FolderPlus className="h-3.5 w-3.5"/>
               </Button>
             </FolderCreate>
           )}
-          <Link
-            className={cn(buttonVariants({size: "sm"}), "hidden sm:flex")}
-            href={`/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/collection/${encodeURIComponent(name)}/new${schema.view?.layout !== 'tree' && path && path !== schema.path ? `?parent=${encodeURIComponent(path)}` : ""}`}
-          >
-              Add an entry
-          </Link>
-          <Link
-            className={cn(buttonVariants({size: "icon-sm"}), "sm:hidden shrink-0")}
-            href={`/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/collection/${encodeURIComponent(name)}/new${schema.view?.layout !== 'tree' && path && path !== schema.path ? `?parent=${encodeURIComponent(path)}` : ""}`}
-          >
-              <Plus className="h-4 w-4"/>
-          </Link>
+          {hasFrontmatterSort && isDirty && schema.view?.layout !== 'tree' && (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setReorderData([...data])}
+                disabled={isSavingOrder}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleSaveOrder}
+                disabled={isSavingOrder}
+              >
+                {isSavingOrder ? <Loader className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
+                Save order
+              </Button>
+            </>
+          )}
+          {!isDirty && (
+            <>
+              <Link
+                className={cn(buttonVariants({size: "sm"}), "hidden sm:flex")}
+                href={`/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/collection/${encodeURIComponent(name)}/new${schema.view?.layout !== 'tree' && path && path !== schema.path ? `?parent=${encodeURIComponent(path)}` : ""}`}
+              >
+                  Add an entry
+              </Link>
+              <Link
+                className={cn(buttonVariants({size: "icon-sm"}), "sm:hidden shrink-0")}
+                href={`/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/collection/${encodeURIComponent(name)}/new${schema.view?.layout !== 'tree' && path && path !== schema.path ? `?parent=${encodeURIComponent(path)}` : ""}`}
+              >
+                  <Plus className="h-4 w-4"/>
+              </Link>
+            </>
+          )}
         </header>
         {isLoading
           ? loadingSkeleton
-          : <CollectionTable
-              columns={columns}
-              data={data}
-              search={search}
-              setSearch={setSearch}
-              initialState={initialState}
-              onExpand={handleExpand}
-              pathname={pathname}
-              path={path || schema.path}
-              isTree={schema.view?.layout === 'tree'}
-              primaryField={primaryField}
-            />
+          : hasFrontmatterSort && schema.view?.layout !== 'tree'
+            ? (
+              <DndContext
+                sensors={dndSensors}
+                collisionDetection={closestCenter}
+                modifiers={[restrictToVerticalAxis]}
+                onDragEnd={(event) => {
+                  const { active, over } = event;
+                  if (over && active.id !== over.id) {
+                    setReorderData(items => {
+                      const oldIndex = items.findIndex(i => i.path === active.id);
+                      const newIndex = items.findIndex(i => i.path === over.id);
+                      return arrayMove(items, oldIndex, newIndex);
+                    });
+                  }
+                }}
+              >
+                <SortableContext items={reorderData.map(d => d.path)} strategy={verticalListSortingStrategy}>
+                  <div className="border rounded-md overflow-hidden">
+                    {reorderData.filter((d: any) => d.type !== 'dir').map((item, index) => (
+                      <SortableTableRow
+                        key={item.path}
+                        item={item}
+                        index={index}
+                        showOrderNumber={hasFrontmatterSort}
+                        sortField={sortField}
+                        primaryField={primaryField}
+                        viewFields={viewFields}
+                        config={config}
+                        name={name}
+                        onDelete={handleDelete}
+                        onRename={handleRename}
+                      />
+                    ))}
+                  </div>
+                </SortableContext>
+              </DndContext>
+            )
+            : isGalleryLayout
+              ? (
+                <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(10rem, 1fr))" }}>
+                  {data
+                    .filter((item: any) => item.type === 'file')
+                    .filter((item: any) => !search || String(safeAccess(item.fields, primaryField) ?? item.name).toLowerCase().includes(search.toLowerCase()))
+                    .map((item: any) => (
+                      <GalleryCard
+                        key={item.path}
+                        item={item}
+                        primaryField={primaryField}
+                        imageField={imageField}
+                        mediaName={mediaName}
+                        mediaConfig={mediaConfig}
+                        config={config}
+                        name={name}
+                        onDelete={handleDelete}
+                        onRename={handleRename}
+                      />
+                    ))
+                  }
+                </div>
+              )
+              : <CollectionTable
+                columns={columns}
+                data={data}
+                search={search}
+                setSearch={setSearch}
+                initialState={initialState}
+                onExpand={handleExpand}
+                pathname={pathname}
+                path={path || schema.path}
+                isTree={schema.view?.layout === 'tree'}
+                primaryField={primaryField}
+              />
         }
       </div>
     </>
