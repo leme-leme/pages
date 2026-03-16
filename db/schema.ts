@@ -95,7 +95,9 @@ const cacheFileTable = pgTable("cache_file", {
   downloadUrl: text("download_url"),
   commitSha: text('commit_sha'),
   commitTimestamp: timestamp('commit_timestamp'),
-  lastUpdated: timestamp("last_updated").notNull()
+  lastUpdated: timestamp("last_updated").notNull(),
+  provider: text("provider").notNull().default("github"),
+  s3Key: text("s3_key")
 }, table => ({
   idx_cache_file_owner_repo_branch_parentPath: index("idx_cache_file_owner_repo_branch_parentPath").on(table.owner, table.repo, table.branch, table.parentPath),
   idx_cache_file_owner_repo_branch_path: uniqueIndex("idx_cache_file_owner_repo_branch_path").on(table.owner, table.repo, table.branch, table.path)
