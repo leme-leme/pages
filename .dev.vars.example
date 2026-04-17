@@ -1,0 +1,16 @@
+# Copy to .dev.vars for local `npm run preview` (wrangler dev).
+# For `next dev` continue to use .env.local.
+NEXTJS_ENV=development
+
+# BASE_URL="https://pages.leme.work"
+CRYPTO_KEY=""
+GITHUB_APP_ID=""
+GITHUB_APP_NAME=""
+GITHUB_APP_PRIVATE_KEY=""
+GITHUB_APP_WEBHOOK_SECRET=""
+GITHUB_APP_CLIENT_ID=""
+GITHUB_APP_CLIENT_SECRET=""
+RESEND_API_KEY=""
+RESEND_FROM_EMAIL=""
+DATABASE_URL=""
+CRON_SECRET=""

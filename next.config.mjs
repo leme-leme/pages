@@ -8,3 +8,8 @@ const withBundleAnalyzer = bundleAnalyzer({
 const nextConfig = {};
 
 export default withBundleAnalyzer(nextConfig);
+
+if (process.env.NODE_ENV === "development") {
+  const { initOpenNextCloudflareForDev } = await import("@opennextjs/cloudflare");
+  initOpenNextCloudflareForDev();
+}
