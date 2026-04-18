@@ -19,8 +19,15 @@ export default async function Layout({
   const { session, user } = await getAuth();
   if (!session) return redirect("/sign-in");
 
-  const token = await getToken(user, owner, repo);
-  if (!token) throw new Error("Token not found");
+  let token: string;
+  try {
+    const t = await getToken(user, owner, repo);
+    if (!t) throw new Error("Token not found");
+    token = t;
+  } catch (err: any) {
+    console.error(`repo_layout getToken failed for ${owner}/${repo}: ${err?.message}\n${err?.stack}`);
+    throw new Error(`repo_layout.getToken: ${err?.message ?? String(err)}`);
+  }
 
   const decodedBranch = decodeURIComponent(branch);
 
@@ -77,8 +84,9 @@ export default async function Layout({
       }
     }
   } catch (error: any) {
+    console.error(`repo_layout config-fetch failed for ${owner}/${repo}@${decodedBranch}: status=${error?.status} message=${error?.message}\n${error?.stack}`);
     if (error.status === 404) {
-      if (error.response.data.message === "Not Found") {
+      if (error.response?.data?.message === "Not Found") {
         errorMessage = (
           <Message
             title="No configuration file"
@@ -100,7 +108,10 @@ export default async function Layout({
           />
         );
       }
-      // TODO: catch all error (it's not always just one of these two)
+    } else {
+      // Unknown error — surface it rather than silently falling through
+      // to a render with empty config (which then blows up in the child).
+      throw new Error(`repo_layout.config: status=${error?.status} ${error?.message ?? String(error)}`);
     }
   }
 
