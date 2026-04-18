@@ -29,65 +29,57 @@ export async function GET(request: Request): Promise<Response> {
 		});
 	}
 
+	let step = "init";
 	try {
-    // Direct fetch instead of arctic's validateAuthorizationCode: arctic/oslo
-    // sends `User-Agent: oslo` + form-encoded body, which Cloudflare's edge
-    // in front of github.com/login/oauth/access_token rejects with
-    // "Request forbidden by administrative rules". JSON body + default UA works.
-    const tokenResponse = await fetch("https://github.com/login/oauth/access_token", {
-      method: "POST",
-      headers: {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        client_id: process.env.GITHUB_APP_CLIENT_ID,
-        client_secret: process.env.GITHUB_APP_CLIENT_SECRET,
-        code,
-      }),
-    });
-    if (!tokenResponse.ok) {
-      throw new Error(`GitHub token exchange failed: ${tokenResponse.status} ${await tokenResponse.text()}`);
-    }
-    const tokenData = await tokenResponse.json() as { access_token?: string; error?: string; error_description?: string };
-    if (!tokenData.access_token) {
-      throw new Error(`GitHub token exchange error: ${tokenData.error_description ?? tokenData.error ?? "no access_token in response"}`);
-    }
-    const accessToken = tokenData.access_token;
-
-		const githubUserResponse = await fetch("https://api.github.com/user", {
-			headers: {
-				Authorization: `Bearer ${accessToken}`,
-				"User-Agent": "pages-cms"
-			}
+		step = "token_exchange";
+		const tokenResponse = await fetch("https://github.com/login/oauth/access_token", {
+			method: "POST",
+			headers: { "Accept": "application/json", "Content-Type": "application/json" },
+			body: JSON.stringify({
+				client_id: process.env.GITHUB_APP_CLIENT_ID,
+				client_secret: process.env.GITHUB_APP_CLIENT_SECRET,
+				code,
+			}),
 		});
+		if (!tokenResponse.ok) {
+			throw new Error(`token_exchange http ${tokenResponse.status}: ${await tokenResponse.text()}`);
+		}
+		const tokenData = await tokenResponse.json() as { access_token?: string; error?: string; error_description?: string };
+		if (!tokenData.access_token) {
+			throw new Error(`token_exchange body: ${tokenData.error_description ?? tokenData.error ?? JSON.stringify(tokenData)}`);
+		}
+		const accessToken = tokenData.access_token;
+
+		step = "fetch_user";
+		const githubUserResponse = await fetch("https://api.github.com/user", {
+			headers: { Authorization: `Bearer ${accessToken}`, "User-Agent": "pages-cms" }
+		});
+		if (!githubUserResponse.ok) {
+			throw new Error(`fetch_user http ${githubUserResponse.status}: ${await githubUserResponse.text()}`);
+		}
 		const githubUser: GitHubUser = await githubUserResponse.json();
 
-    const { ciphertext, iv } = await encrypt(accessToken);
+		step = "encrypt";
+		const { ciphertext, iv } = await encrypt(accessToken);
 
+		step = "find_existing_user";
 		const existingUser = await db.query.userTable.findFirst({
 			where: eq(userTable.githubId, Number(githubUser.id))
 		});
 
 		if (existingUser) {
-			await db.update(githubUserTokenTable).set({
-				ciphertext, iv
-			}).where(
-				eq(githubUserTokenTable.userId, existingUser.id)
-			);
+			step = "update_token";
+			await db.update(githubUserTokenTable).set({ ciphertext, iv })
+				.where(eq(githubUserTokenTable.userId, existingUser.id));
+			step = "create_session_existing";
 			const session = await lucia.createSession(existingUser.id as string, {});
 			const sessionCookie = lucia.createSessionCookie(session.id);
 			cookies().set(sessionCookie.name, sessionCookie.value, sessionCookie.attributes);
-			return new Response(null, {
-				status: 302,
-				headers: {
-					Location: "/"
-				}
-			});
+			return new Response(null, { status: 302, headers: { Location: "/" } });
 		}
 
-		const userId = generateIdFromEntropySize(10); // 16 characters long
-
+		step = "insert_user";
+		const userId = generateIdFromEntropySize(10);
 		await db.insert(userTable).values({
 			id: userId,
 			githubId: Number(githubUser.id),
@@ -95,24 +87,23 @@ export async function GET(request: Request): Promise<Response> {
 			githubEmail: githubUser.email,
 			githubName: githubUser.name
 		});
-    await db.insert(githubUserTokenTable).values({
-			ciphertext,
-			iv,
-			userId
-		});
+		step = "insert_token";
+		await db.insert(githubUserTokenTable).values({ ciphertext, iv, userId });
 
+		step = "create_session_new";
 		const session = await lucia.createSession(userId, {});
 		const sessionCookie = lucia.createSessionCookie(session.id);
 		cookies().set(sessionCookie.name, sessionCookie.value, sessionCookie.attributes);
-		return new Response(null, {
-			status: 302,
-			headers: {
-				Location: "/"
-			}
+		return new Response(null, { status: 302, headers: { Location: "/" } });
+	} catch (e: any) {
+		const msg = e?.message ?? String(e);
+		const stack = e?.stack ?? "";
+		console.error(`github_auth_error step=${step} msg=${msg}\n${stack}`);
+		// TEMPORARY: surface error in response body while debugging. Remove once stable.
+		return new Response(`github_auth step=${step}\n${msg}\n\n${stack}`, {
+			status: 500,
+			headers: { "Content-Type": "text/plain; charset=utf-8" }
 		});
-	} catch (e) {
-		console.error("GitHub auth error:", e);
-		return new Response(null, { status: 500 });
 	}
 }
 
