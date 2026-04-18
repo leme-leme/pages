@@ -46,7 +46,20 @@ export interface DatabaseUserAttributes {
 	email: string;
 }
 
-export const github = new GitHub(process.env.GITHUB_APP_CLIENT_ID!, process.env.GITHUB_APP_CLIENT_SECRET!);
+// Lazy: Cloudflare Workers secrets aren't guaranteed at module init.
+let _github: GitHub | null = null;
+export const github = new Proxy({} as GitHub, {
+	get(_target, prop) {
+		if (!_github) {
+			_github = new GitHub(
+				process.env.GITHUB_APP_CLIENT_ID!,
+				process.env.GITHUB_APP_CLIENT_SECRET!
+			);
+		}
+		const value = (_github as any)[prop];
+		return typeof value === "function" ? value.bind(_github) : value;
+	}
+});
 
 export const getAuth = cache(
 	async (): Promise<{ user: User; session: Session } | { user: null; session: null }> => {

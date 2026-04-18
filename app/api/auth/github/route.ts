@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
-import { getAuth, github, lucia } from "@/lib/auth";
+import { getAuth, lucia } from "@/lib/auth";
 import { cookies } from "next/headers";
-import { OAuth2RequestError } from "arctic";
 import { generateIdFromEntropySize } from "lucia";
 import { encrypt } from "@/lib/crypto";
 import { db } from "@/db";
@@ -31,15 +30,40 @@ export async function GET(request: Request): Promise<Response> {
 	}
 
 	try {
-    const token = await github.validateAuthorizationCode(code);
+    // Direct fetch instead of arctic's validateAuthorizationCode: arctic/oslo
+    // sends `User-Agent: oslo` + form-encoded body, which Cloudflare's edge
+    // in front of github.com/login/oauth/access_token rejects with
+    // "Request forbidden by administrative rules". JSON body + default UA works.
+    const tokenResponse = await fetch("https://github.com/login/oauth/access_token", {
+      method: "POST",
+      headers: {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        client_id: process.env.GITHUB_APP_CLIENT_ID,
+        client_secret: process.env.GITHUB_APP_CLIENT_SECRET,
+        code,
+      }),
+    });
+    if (!tokenResponse.ok) {
+      throw new Error(`GitHub token exchange failed: ${tokenResponse.status} ${await tokenResponse.text()}`);
+    }
+    const tokenData = await tokenResponse.json() as { access_token?: string; error?: string; error_description?: string };
+    if (!tokenData.access_token) {
+      throw new Error(`GitHub token exchange error: ${tokenData.error_description ?? tokenData.error ?? "no access_token in response"}`);
+    }
+    const accessToken = tokenData.access_token;
+
 		const githubUserResponse = await fetch("https://api.github.com/user", {
 			headers: {
-				Authorization: `Bearer ${token.accessToken}`
+				Authorization: `Bearer ${accessToken}`,
+				"User-Agent": "pages-cms"
 			}
 		});
 		const githubUser: GitHubUser = await githubUserResponse.json();
-    
-    const { ciphertext, iv } = await encrypt(token.accessToken);
+
+    const { ciphertext, iv } = await encrypt(accessToken);
 
 		const existingUser = await db.query.userTable.findFirst({
 			where: eq(userTable.githubId, Number(githubUser.id))
@@ -86,12 +110,8 @@ export async function GET(request: Request): Promise<Response> {
 				Location: "/"
 			}
 		});
-	} catch (e) {		
+	} catch (e) {
 		console.error("GitHub auth error:", e);
-		if (e instanceof OAuth2RequestError) {
-			// invalid code
-			return new Response(null, { status: 400 });
-		}
 		return new Response(null, { status: 500 });
 	}
 }
