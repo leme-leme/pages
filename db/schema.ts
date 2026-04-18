@@ -15,9 +15,13 @@ const userTable = sqliteTable("user", {
   email: text("email").unique()
 });
 
+// Lucia's DrizzleSQLiteAdapter does its own Date → unix-seconds conversion,
+// so `expires_at` must be a plain integer (not mode:"timestamp"). Using the
+// timestamp mode causes drizzle to call .getTime() on the adapter's already-
+// converted number → TypeError.
 const sessionTable = sqliteTable("session", {
   id: text("id").notNull().primaryKey(),
-  expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+  expiresAt: integer("expires_at").notNull(),
   userId: text("user_id").notNull().references(() => userTable.id)
 }, table => ({
   idx_session_userId: index("idx_session_userId").on(table.userId)
