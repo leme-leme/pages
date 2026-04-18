@@ -99,11 +99,7 @@ export async function GET(request: Request): Promise<Response> {
 		const msg = e?.message ?? String(e);
 		const stack = e?.stack ?? "";
 		console.error(`github_auth_error step=${step} msg=${msg}\n${stack}`);
-		// TEMPORARY: surface error in response body while debugging. Remove once stable.
-		return new Response(`github_auth step=${step}\n${msg}\n\n${stack}`, {
-			status: 500,
-			headers: { "Content-Type": "text/plain; charset=utf-8" }
-		});
+		return new Response(null, { status: 500 });
 	}
 }
 
