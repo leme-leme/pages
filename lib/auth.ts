@@ -4,29 +4,45 @@
 
 import { cache } from "react";
 import { Session, User, Lucia } from "lucia";
-import { DrizzlePostgreSQLAdapter, PostgreSQLSessionTable, PostgreSQLUserTable } from "@lucia-auth/adapter-drizzle";
+import { DrizzleSQLiteAdapter, SQLiteSessionTable, SQLiteUserTable } from "@lucia-auth/adapter-drizzle";
 import { db } from "@/db";
 import { userTable, sessionTable } from "@/db/schema";
 import { GitHub } from "arctic";
 import { cookies } from "next/headers";
 
-const adapter = new DrizzlePostgreSQLAdapter(db, sessionTable as unknown as PostgreSQLSessionTable, userTable as unknown as PostgreSQLUserTable);
-
-export const lucia = new Lucia(adapter, {
-	sessionCookie: {
-		expires: false,
-		attributes: {
-			secure: process.env.NODE_ENV === "production"
-		}
-	},
-	getUserAttributes: (attributes) => {
-		return {
+// Lazy: db resolves per-request from the Cloudflare env binding; Lucia is built
+// on first access so construction runs inside a request handler.
+let _lucia: Lucia | null = null;
+function getLucia(): Lucia {
+	if (_lucia) return _lucia;
+	const adapter = new DrizzleSQLiteAdapter(
+		db as any,
+		sessionTable as unknown as SQLiteSessionTable,
+		userTable as unknown as SQLiteUserTable
+	);
+	_lucia = new Lucia(adapter, {
+		sessionCookie: {
+			expires: false,
+			attributes: {
+				secure: process.env.NODE_ENV === "production"
+			}
+		},
+		getUserAttributes: (attributes) => ({
 			githubId: attributes.githubId,
 			githubUsername: attributes.githubUsername,
 			githubEmail: attributes.githubEmail,
 			githubName: attributes.githubName,
 			email: attributes.email
-		};
+		})
+	});
+	return _lucia;
+}
+
+export const lucia = new Proxy({} as Lucia, {
+	get(_target, prop) {
+		const instance = getLucia() as any;
+		const value = instance[prop];
+		return typeof value === "function" ? value.bind(instance) : value;
 	}
 });
 

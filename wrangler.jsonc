@@ -22,5 +22,13 @@
   ],
   "triggers": {
     "crons": ["0 0 * * *"]
-  }
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "pages-cms-db",
+      "database_id": "99d863d1-a0e4-4821-8368-b4371342a0bd",
+      "migrations_dir": "db/migrations"
+    }
+  ]
 }

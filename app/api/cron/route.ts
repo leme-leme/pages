@@ -25,12 +25,11 @@ export async function GET(request: Request) {
       .where(lt(cachePermissionTable.lastUpdated, permissionExpiryDate)).returning();
     console.log(`Deleted ${deletedPermissions.length} expired permission cache entries.`);
 
-    // Run VACUUM on the tables we just cleaned up
-    console.log("Running VACUUM on cache_file.");
-    await db.execute(sql`VACUUM cache_file`);
-    console.log("Running VACUUM on cache_permission.");
-    await db.execute(sql`VACUUM cache_permission`);
-    console.log("VACUUM commands executed.");
+    // SQLite (D1) supports a single whole-DB VACUUM. Per-table VACUUM is
+    // a PostgreSQL-only syntax, so we run one VACUUM after all deletes.
+    console.log("Running VACUUM.");
+    await db.run(sql`VACUUM`);
+    console.log("VACUUM executed.");
 
     return NextResponse.json({ success: true, deletedFiles: deletedFiles.length, deletedPermissions: deletedPermissions.length });
   } catch (error) {
