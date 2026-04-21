@@ -9,6 +9,20 @@ import { createOctokitInstance } from "@/lib/utils/octokit";
 import { getParentPath } from "@/lib/utils/file";
 import path from "path";
 
+// D1/SQLite caps prepared-statement parameters at SQLITE_MAX_VARIABLE_NUMBER
+// (~999). A single multi-row `INSERT ... VALUES (...), (...)` emits one bind
+// per column per row, so a 17-column bulk insert trips the limit around 58
+// rows. Chunk bulk inserts to stay safely under.
+const SQL_VAR_LIMIT = 900;
+const chunkRows = <T,>(rows: T[], columnsPerRow: number): T[][] => {
+  const rowsPerBatch = Math.max(1, Math.floor(SQL_VAR_LIMIT / columnsPerRow));
+  const batches: T[][] = [];
+  for (let i = 0; i < rows.length; i += rowsPerBatch) {
+    batches.push(rows.slice(i, i + rowsPerBatch));
+  }
+  return batches;
+};
+
 type FileChange = {
   path: string;
   sha: string;
@@ -697,28 +711,31 @@ const getCollectionCache = async (
     let githubEntries = responseEntries.repository?.object?.entries || [];
 
     if (githubEntries.length > 0) {
-      // We populate the cache
-      entries = await db.insert(cacheFileTable)
-        .values(githubEntries.map((entry: any) => ({
-          context: 'collection',
-          owner: owner.toLowerCase(),
-          repo: repo.toLowerCase(),
-          branch,
-          parentPath: dirPath,
-          name: entry.name,
-          path: entry.path,
-          type: entry.type === 'blob' ? 'file' : 'dir',
-          content: entry.type === "blob" ? entry.object.text : null,
-          sha: entry.type === "blob" ? entry.object.oid : null,
-          size: entry.type === "blob" ? entry.object.byteSize : null,
-          downloadUrl: null, // GraphQL doesn't return download URLs
-          lastUpdated: new Date(),
-          // Need commit info if possible, but GraphQL tree doesn't provide it easily
-          commitSha: null,
-          commitTimestamp: null,
-          provider: "github" as const, s3Key: null
-        })))
-        .returning();
+      // We populate the cache (chunked — see SQL_VAR_LIMIT above).
+      const rows = githubEntries.map((entry: any) => ({
+        context: 'collection',
+        owner: owner.toLowerCase(),
+        repo: repo.toLowerCase(),
+        branch,
+        parentPath: dirPath,
+        name: entry.name,
+        path: entry.path,
+        type: entry.type === 'blob' ? 'file' : 'dir',
+        content: entry.type === "blob" ? entry.object.text : null,
+        sha: entry.type === "blob" ? entry.object.oid : null,
+        size: entry.type === "blob" ? entry.object.byteSize : null,
+        downloadUrl: null, // GraphQL doesn't return download URLs
+        lastUpdated: new Date(),
+        // Need commit info if possible, but GraphQL tree doesn't provide it easily
+        commitSha: null,
+        commitTimestamp: null,
+        provider: "github" as const, s3Key: null
+      }));
+      entries = [];
+      for (const batch of chunkRows(rows, 17)) {
+        const inserted = await db.insert(cacheFileTable).values(batch).returning();
+        entries.push(...inserted);
+      }
     }
   }
 
@@ -888,10 +905,12 @@ const getMediaCache = async (
     }));
 
     if (!nocache && githubEntries.length > 0) {
-      // Cache the entries
-      entries = await db.insert(cacheFileTable)
-        .values(mappedEntries)
-        .returning();
+      // Cache the entries (chunked — see SQL_VAR_LIMIT above).
+      entries = [];
+      for (const batch of chunkRows(mappedEntries, 17)) {
+        const inserted = await db.insert(cacheFileTable).values(batch).returning();
+        entries.push(...inserted);
+      }
     } else {
       // When `nocache`, we don't cache the entries
       entries = mappedEntries;
