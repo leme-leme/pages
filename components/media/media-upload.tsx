@@ -6,6 +6,7 @@ import { joinPathSegments } from "@/lib/utils/file";
 import { toast } from "sonner";
 import { getSchemaByName } from "@/lib/schema";
 import { cn } from "@/lib/utils";
+import { transformImage } from "@/lib/image-transform";
 
 interface MediaUploadContextValue {
   handleFiles: (files: FileList) => Promise<void>;
@@ -62,7 +63,14 @@ function MediaUploadRoot({ children, path, onUpload, media, extensions, multiple
     try {
       for (let i = 0; i < files.length; i++) {
         const reader = new FileReader();
-        const file = files[i];
+        // Re-encode raster images in the browser before upload when the
+        // media entry declares `transformations.raster_image` in .pages.yml.
+        // Pass-through (no-op) when not configured or on non-images. See
+        // lib/image-transform.ts for the config shape + rules.
+        const file = await transformImage(
+          files[i],
+          configMedia?.transformations
+        );
 
         const uploadPromise = new Promise((resolve, reject) => {
           reader.onload = async () => {
@@ -108,7 +116,7 @@ function MediaUploadRoot({ children, path, onUpload, media, extensions, multiple
     } catch (error) {
       console.error(error);
     }
-  }, [config, path, configMedia?.name, onUpload]);
+  }, [config, path, configMedia?.name, configMedia?.transformations, onUpload]);
 
   const contextValue = useMemo(() => ({
     handleFiles,
