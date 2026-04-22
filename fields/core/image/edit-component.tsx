@@ -4,7 +4,8 @@ import { forwardRef, useCallback, useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { MediaUpload } from "@/components/media/media-upload";
 import { MediaDialog } from "@/components/media/media-dialog";
-import { Trash2, Upload, FolderOpen, ArrowUpRight } from "lucide-react";
+import { MediaLightbox } from "@/components/media/media-lightbox";
+import { Trash2, Upload, FolderOpen, Images } from "lucide-react";
 import { useConfig } from "@/contexts/config-context";
 import { extensionCategories, normalizePath } from "@/lib/utils/file";
 import {
@@ -19,84 +20,80 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { v4 as uuidv4 } from 'uuid';
 import { getSchemaByName } from "@/lib/schema";
-import { cn } from "@/lib/utils";
-import { buttonVariants } from "@/components/ui/button";
 import { Thumbnail } from "@/components/thumbnail";
 import { getAllowedExtensions } from "./index";
 
 const generateId = () => uuidv4().slice(0, 8);
 
-const ImageTeaser = ({ file, config, media, mediaConfig, onRemove }: {
+const ImageTeaser = ({ file, media, mediaConfig, rootPath, allowedExtensions, onRemove, onReplace }: {
   file: string;
-  config: any;
   media: string;
   mediaConfig: any;
+  rootPath?: string;
+  allowedExtensions?: string[];
   onRemove: (file: string) => void;
+  onReplace: (newPath: string) => void;
 }) => {
-  // Convert stored output path (e.g. /media/foo.jpg) to repo input path (e.g. static/media/foo.jpg)
-  const repoPath = useMemo(() => {
-    if (!file || !mediaConfig) return file?.replace(/^\//, '') ?? file;
-    const outputPrefix = (mediaConfig.output ?? "").replace(/\/$/, "");
-    const inputPrefix = (mediaConfig.input ?? "").replace(/\/$/, "");
-    const normalizedFile = file.startsWith("/") ? file : "/" + file;
-    const normalizedOutput = outputPrefix.startsWith("/") ? outputPrefix : "/" + outputPrefix;
-    if (normalizedOutput && (normalizedFile === normalizedOutput || normalizedFile.startsWith(normalizedOutput + "/"))) {
-      const rest = normalizedFile.slice(normalizedOutput.length);
-      return (inputPrefix + rest).replace(/^\//, "");
-    }
-    return file.replace(/^\//, "");
-  }, [file, mediaConfig]);
-
   return (
-    <>
-      <div className="absolute bottom-1.5 right-1.5">
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <a
-                href={`https://github.com/${config.owner}/${config.repo}/blob/${config.branch}/${repoPath}`}
-                target="_blank"
-                className={cn(buttonVariants({ variant: "secondary", size: "icon-xs" }), "rounded-r-none")}
-              >
-                <ArrowUpRight className="h-4 w-4" />
-              </a>
-            </TooltipTrigger>
-            <TooltipContent>
-              See on GitHub
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-
-        <TooltipProvider>
-          <Tooltip>
+    <div className="absolute bottom-1.5 right-1.5">
+      <TooltipProvider>
+        <Tooltip>
+          <MediaDialog
+            media={media}
+            initialPath={rootPath ?? mediaConfig?.input}
+            maxSelected={1}
+            extensions={allowedExtensions}
+            onSubmit={(newPaths) => { if (newPaths[0]) onReplace(newPaths[0]); }}
+          >
             <TooltipTrigger asChild>
               <Button
                 type="button"
                 size="icon-xs"
                 variant="secondary"
-                onClick={() => onRemove(file)}
-                className="rounded-l-none"
+                className="rounded-r-none"
               >
-                <Trash2 className="h-4 w-4" />
+                <Images className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>
-              Remove
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      </div>
-    </>
+          </MediaDialog>
+          <TooltipContent>
+            Replace from images
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              size="icon-xs"
+              variant="secondary"
+              onClick={() => onRemove(file)}
+              className="rounded-l-none"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            Remove
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    </div>
   )
 };
 
-const SortableItem = ({ id, file, config, media, mediaConfig, onRemove }: {
+const SortableItem = ({ id, file, media, mediaConfig, rootPath, allowedExtensions, onRemove, onReplace, onPreview }: {
   id: string;
   file: string;
-  config: any;
   media: string;
   mediaConfig: any;
+  rootPath?: string;
+  allowedExtensions?: string[];
   onRemove: (file: string) => void;
+  onReplace: (newPath: string) => void;
+  onPreview: (file: string) => void;
 }) => {
   const {
     attributes,
@@ -117,10 +114,23 @@ const SortableItem = ({ id, file, config, media, mediaConfig, onRemove }: {
 
   return (
     <div ref={setNodeRef} style={style} className="aspect-square">
-      <div {...attributes} {...listeners} className="w-full h-full cursor-grab active:cursor-grabbing">
+      <div
+        {...attributes}
+        {...listeners}
+        onClick={() => onPreview(file)}
+        className="w-full h-full cursor-grab active:cursor-grabbing"
+      >
         <Thumbnail name={media} path={file} className="rounded-md w-full h-full object-cover"/>
       </div>
-      <ImageTeaser file={file} config={config} onRemove={onRemove} media={media} mediaConfig={mediaConfig} />
+      <ImageTeaser
+        file={file}
+        media={media}
+        mediaConfig={mediaConfig}
+        rootPath={rootPath}
+        allowedExtensions={allowedExtensions}
+        onRemove={onRemove}
+        onReplace={onReplace}
+      />
     </div>
   );
 };
@@ -204,12 +214,20 @@ const EditComponent = forwardRef((props: any, ref: React.Ref<HTMLInputElement>) 
     setFiles(prev => prev.filter(file => file.id !== fileId));
   }, []);
 
+  const handleReplace = useCallback((fileId: string, newPath: string) => {
+    setFiles(prev => prev.map(file => file.id === fileId ? { ...file, path: newPath } : file));
+  }, []);
+
+  // distance constraint lets plain clicks fall through to the thumbnail's
+  // onClick (lightbox) instead of being swallowed as a drag start.
   const sensors = useSensors(
-    useSensor(PointerSensor),
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
     })
   );
+
+  const [lightboxPath, setLightboxPath] = useState<string | null>(null);
 
   const handleDragEnd = (event: any) => {
     const { active, over } = event;
@@ -275,10 +293,13 @@ const EditComponent = forwardRef((props: any, ref: React.Ref<HTMLInputElement>) 
                         key={file.id}
                         id={file.id}
                         file={file.path}
-                        config={config}
                         media={mediaConfig.name}
                         mediaConfig={mediaConfig}
+                        rootPath={rootPath}
+                        allowedExtensions={allowedExtensions}
                         onRemove={() => handleRemove(file.id)}
+                        onReplace={(newPath) => handleReplace(file.id, newPath)}
+                        onPreview={setLightboxPath}
                       />
                     ))}
                   </div>
@@ -286,8 +307,22 @@ const EditComponent = forwardRef((props: any, ref: React.Ref<HTMLInputElement>) 
               </DndContext>
             ) : (
               <div className="aspect-square w-28 relative">
-                <Thumbnail name={mediaConfig.name} path={files[0].path} className="rounded-md w-28 h-28"/>
-                <ImageTeaser file={files[0].path} config={config} media={mediaConfig.name} mediaConfig={mediaConfig} onRemove={() => handleRemove(files[0].id)} />
+                <button
+                  type="button"
+                  onClick={() => setLightboxPath(files[0].path)}
+                  className="block w-28 h-28 rounded-md overflow-hidden focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
+                >
+                  <Thumbnail name={mediaConfig.name} path={files[0].path} className="rounded-md w-28 h-28"/>
+                </button>
+                <ImageTeaser
+                  file={files[0].path}
+                  media={mediaConfig.name}
+                  mediaConfig={mediaConfig}
+                  rootPath={rootPath}
+                  allowedExtensions={allowedExtensions}
+                  onRemove={() => handleRemove(files[0].id)}
+                  onReplace={(newPath) => handleReplace(files[0].id, newPath)}
+                />
               </div>
             )
           )}
@@ -323,6 +358,12 @@ const EditComponent = forwardRef((props: any, ref: React.Ref<HTMLInputElement>) 
           )}
         </div>
       </MediaUpload.DropZone>
+      <MediaLightbox
+        open={lightboxPath !== null}
+        onOpenChange={(open) => { if (!open) setLightboxPath(null); }}
+        name={mediaConfig.name}
+        path={lightboxPath}
+      />
     </MediaUpload>
   );
 });

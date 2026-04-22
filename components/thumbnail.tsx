@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useMemo } from "react";
-import { getRawUrl } from "@/lib/githubImage";
+import { getRawUrl, outputToInputPath } from "@/lib/githubImage";
 import { useRepo } from "@/contexts/repo-context";
 import { useConfig } from "@/contexts/config-context";
 import { cn } from "@/lib/utils";
@@ -12,50 +12,6 @@ const VIDEO_EXTENSIONS = new Set(["mp4", "webm", "mov", "ogg", "avi"]);
 function isVideo(path: string): boolean {
   const ext = path.split(".").pop()?.toLowerCase();
   return ext ? VIDEO_EXTENSIONS.has(ext) : false;
-}
-
-// Translate a stored output-based path (e.g. "/media/foo.jpg") to
-// the repo input path (e.g. "static/media/foo.jpg") using media config.
-function outputToInputPath(
-  path: string,
-  media: any,
-  name?: string
-): string {
-  if (!path) return path;
-  if (!media) return path.replace(/^\//, "");
-
-  // Normalize media to array of {input, output} objects
-  const configs: any[] = Array.isArray(media)
-    ? media
-    : typeof media === "string"
-      ? [{ input: media, output: media }]
-      : [media];
-
-  // Prefer named config, fall back to first
-  const cfg = name
-    ? configs.find((m: any) => m.name === name) ?? configs[0]
-    : configs[0];
-
-  if (!cfg || typeof cfg === "string") return path.replace(/^\//, "");
-
-  const outputPrefix = (cfg.output ?? "").replace(/\/$/, "");
-  const inputPrefix = (cfg.input ?? "").replace(/\/$/, "");
-
-  const normalizedPath = path.startsWith("/") ? path : "/" + path;
-  const normalizedOutput = outputPrefix.startsWith("/")
-    ? outputPrefix
-    : "/" + outputPrefix;
-
-  if (
-    normalizedOutput &&
-    (normalizedPath === normalizedOutput ||
-      normalizedPath.startsWith(normalizedOutput + "/"))
-  ) {
-    const rest = normalizedPath.slice(normalizedOutput.length); // e.g. "/foo.jpg"
-    return (inputPrefix + rest).replace(/^\//, "");
-  }
-
-  return path.replace(/^\//, "");
 }
 
 export function Thumbnail({

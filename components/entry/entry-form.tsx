@@ -590,7 +590,7 @@ const EntryForm = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const zodSchema = useMemo(() => {
-    return generateZodSchema(fields);
+    return generateZodSchema(fields, true);
   }, [fields]);
 
   const defaultValues = useMemo(() => {
@@ -632,7 +632,23 @@ const EntryForm = ({
   };
 
   const handleError = (errors: any) => {
-    toast.error("Please fix the errors before saving.", { duration: 5000 });
+    const collect = (node: any, prefix = ""): Array<{ path: string; message: string; type?: string }> => {
+      if (!node || typeof node !== "object") return [];
+      if (typeof node.message === "string" && ("type" in node || "ref" in node)) {
+        return [{ path: prefix || "(root)", message: node.message, type: node.type }];
+      }
+      return Object.entries(node).flatMap(([key, child]) =>
+        collect(child, prefix ? `${prefix}.${key}` : key)
+      );
+    };
+    const issues = collect(errors);
+    console.warn("Entry form validation errors:", errors, issues);
+    toast.error(
+      issues.length
+        ? `Fix: ${issues.slice(0, 3).map(i => `${i.path} (${i.type || "invalid"}: ${i.message || "?"})`).join("; ")}${issues.length > 3 ? "…" : ""}`
+        : "Please fix the errors before saving.",
+      { duration: 12000 }
+    );
   };
 
   return (

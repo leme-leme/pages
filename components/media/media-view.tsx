@@ -16,6 +16,7 @@ import { FolderCreate} from "@/components/folder-create";
 import { FileOptions } from "@/components/file/file-options";
 import { PathBreadcrumb } from "@/components/path-breadcrumb";
 import { MediaUpload} from "./media-upload";
+import { MediaLightbox } from "./media-lightbox";
 import { Message } from "@/components/message";
 import { Thumbnail } from "@/components/thumbnail";
 import { Button } from "@/components/ui/button";
@@ -76,6 +77,7 @@ const MediaView = ({
 
   const [error, setError] = useState<string | null | undefined>(null);
   const [selected, setSelected] = useState(initialSelected || []);
+  const [lightboxPath, setLightboxPath] = useState<string | null>(null);
 
   useEffect(() => {
     setSelected(initialSelected || []);
@@ -319,19 +321,49 @@ const MediaView = ({
                                 </div>
                               </div>
                             </button>
-                          : <label htmlFor={`item-${index}`}>
-                              {onSelect &&
-                                <input 
-                                  type="checkbox" 
-                                  id={`item-${index}`} 
+                          : onSelect
+                            ? <label htmlFor={`item-${index}`}>
+                                <input
+                                  type="checkbox"
+                                  id={`item-${index}`}
                                   className="peer sr-only"
                                   checked={selected.includes(item.path)}
                                   onChange={() => handleSelect(item.path)}
                                 />
-                              }
-                              <div className={onSelect && "hover:bg-muted peer-focus:ring-offset-background peer-focus:ring-2 peer-focus:ring-ring peer-focus:ring-offset-2 rounded-md peer-checked:ring-offset-background peer-checked:ring-offset-2 peer-checked:ring-2 peer-checked:ring-ring relative"}>
+                                <div className="hover:bg-muted peer-focus:ring-offset-background peer-focus:ring-2 peer-focus:ring-ring peer-focus:ring-offset-2 rounded-md peer-checked:ring-offset-background peer-checked:ring-offset-2 peer-checked:ring-2 peer-checked:ring-ring relative">
+                                  {extensionCategories.image.includes(item.extension)
+                                    ? <Thumbnail name={mediaConfig.name} path={item.path} className="rounded-t-md aspect-video"/>
+                                    : <div className="flex items-center justify-center rounded-md aspect-video">
+                                        <File className="stroke-[0.5] h-24 w-24"/>
+                                      </div>
+                                  }
+                                  <div className="flex gap-x-2 items-center p-2">
+                                    <div className="overflow-hidden mr-auto h-9">
+                                      <div className="text-sm font-medium truncate">{item.name}</div>
+                                      <div className="text-xs text-muted-foreground truncate">{getFileSize(item.size)}</div>
+                                    </div>
+                                    <FileOptions path={item.path} sha={item.sha} type="media" name={mediaConfig.name} onDelete={handleDelete} onRename={handleRename} portalProps={{container: filesGridRef.current}}>
+                                      <Button variant="ghost" size="icon" className="shrink-0">
+                                        <EllipsisVertical className="h-4 w-4" />
+                                      </Button>
+                                    </FileOptions>
+                                  </div>
+                                  {selected.includes(item.path) &&
+                                    <div className="text-primary-foreground bg-primary p-0.5 rounded-full absolute top-2 left-2">
+                                      <Check className="stroke-[3] w-3 h-3"/>
+                                    </div>
+                                  }
+                                </div>
+                              </label>
+                            : <div>
                                 {extensionCategories.image.includes(item.extension)
-                                  ? <Thumbnail name={mediaConfig.name} path={item.path} className="rounded-t-md aspect-video"/>
+                                  ? <button
+                                      type="button"
+                                      onClick={() => setLightboxPath(item.path)}
+                                      className="block w-full rounded-t-md overflow-hidden focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
+                                    >
+                                      <Thumbnail name={mediaConfig.name} path={item.path} className="rounded-t-md aspect-video"/>
+                                    </button>
                                   : <div className="flex items-center justify-center rounded-md aspect-video">
                                       <File className="stroke-[0.5] h-24 w-24"/>
                                     </div>
@@ -347,13 +379,7 @@ const MediaView = ({
                                     </Button>
                                   </FileOptions>
                                 </div>
-                                {onSelect && selected.includes(item.path) &&
-                                  <div className="text-primary-foreground bg-primary p-0.5 rounded-full absolute top-2 left-2">
-                                    <Check className="stroke-[3] w-3 h-3"/>
-                                  </div>
-                                }
                               </div>
-                            </label>
                         }
                         
                       </li>
@@ -367,6 +393,12 @@ const MediaView = ({
           </div>
         </MediaUpload.DropZone>
       </MediaUpload>
+      <MediaLightbox
+        open={lightboxPath !== null}
+        onOpenChange={(open) => { if (!open) setLightboxPath(null); }}
+        name={mediaConfig.name}
+        path={lightboxPath}
+      />
     </div>
   )
 };
