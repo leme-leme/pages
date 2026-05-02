@@ -67,6 +67,7 @@ import {
   FileText,
   FolderOpen,
   ListVideo,
+  BarChart3,
   LogOut,
   Moon,
   Settings,
@@ -348,6 +349,13 @@ export function RepoSidebar() {
         label: "Collaborators",
         href: `/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/collaborators`,
         icon: <Users className="size-4" />,
+      });
+
+      items.push({
+        key: "admin-analytics",
+        label: "Analytics",
+        href: `/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/analytics`,
+        icon: <BarChart3 className="size-4" />,
       });
     }
 

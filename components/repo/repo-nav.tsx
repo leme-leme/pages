@@ -8,7 +8,7 @@ import { useUser } from "@/contexts/user-context";
 import { hasGithubIdentity } from "@/lib/authz-shared";
 import { isConfigEnabled } from "@/lib/config";
 import { cn } from "@/lib/utils";
-import { FileStack, FileText, FolderOpen, Settings, Users } from "lucide-react";
+import { BarChart3, FileStack, FileText, FolderOpen, Settings, Users } from "lucide-react";
 
 const RepoNavItem = ({
   children,
@@ -85,11 +85,21 @@ const RepoNav = ({
       }
       : null;
 
+    const analyticsItem = configObject && Object.keys(configObject).length !== 0 && canManageRepo
+      ? {
+        key: "analytics",
+        icon: <BarChart3 className="h-5 w-5 mr-2" />,
+        href: `/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/analytics`,
+        label: "Analytics"
+      }
+      : null;
+
     return [
       ...contentItems,
       ...mediaItems,
       settingsItem,
-      collaboratorsItem
+      collaboratorsItem,
+      analyticsItem
     ].filter(Boolean);
   }, [config, user]);
 
