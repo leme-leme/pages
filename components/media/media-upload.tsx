@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { getSchemaByName } from "@/lib/schema";
 import { cn } from "@/lib/utils";
 import { requireApiSuccess } from "@/lib/api-client";
+import { transformImage } from "@/lib/image-transform";
 import type { FileSaveData } from "@/types/api";
 
 interface MediaUploadContextValue {
@@ -65,7 +66,14 @@ function MediaUploadRoot({ children, path, onUpload, media, extensions, multiple
 
   const handleFiles = useCallback(async (files: File[]) => {
     try {
-      for (const file of files) {
+      for (const rawFile of files) {
+        // Re-encode raster images in the browser before upload when the
+        // media entry declares `transformations.raster_image` in .pages.yml.
+        // Pass-through (no-op) when not configured or on non-images.
+        const file = await transformImage(
+          rawFile,
+          configMedia?.transformations,
+        );
         const uploadFilename = getUploadFileName(
           file.name,
           rename ?? configMedia?.rename,
@@ -113,7 +121,7 @@ function MediaUploadRoot({ children, path, onUpload, media, extensions, multiple
     } catch (error) {
       console.error(error);
     }
-  }, [config, path, configMedia?.name, configMedia?.rename, onUpload, rename]);
+  }, [config, path, configMedia?.name, configMedia?.rename, configMedia?.transformations, onUpload, rename]);
 
   const contextValue = useMemo(() => ({
     handleFiles,

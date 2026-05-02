@@ -126,6 +126,56 @@ const CommitIdentitySchema = z.enum(["app", "user"], {
   message: "'identity' must be either 'app' or 'user'.",
 });
 
+// Client-side upload transformations — shape mirrors Sveltia CMS's
+// `media_library.config.transformations`. See lib/image-transform.ts for
+// the runtime behavior.
+const TransformationsSchema = z
+  .object({
+    raster_image: z
+      .object({
+        format: z
+          .enum(["webp", "jpeg", "png"], {
+            message:
+              "'transformations.raster_image.format' must be 'webp', 'jpeg', or 'png'.",
+          })
+          .optional(),
+        quality: z
+          .number()
+          .min(0, {
+            message:
+              "'transformations.raster_image.quality' must be between 0 and 100.",
+          })
+          .max(100, {
+            message:
+              "'transformations.raster_image.quality' must be between 0 and 100.",
+          })
+          .optional(),
+        width: z
+          .number()
+          .positive({
+            message:
+              "'transformations.raster_image.width' must be a positive integer.",
+          })
+          .optional(),
+        height: z
+          .number()
+          .positive({
+            message:
+              "'transformations.raster_image.height' must be a positive integer.",
+          })
+          .optional(),
+      })
+      .strict()
+      .optional(),
+    svg: z
+      .object({
+        optimize: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
 // Media configuration object schema (for single object)
 const MediaConfigObject = z
   .object({
@@ -212,6 +262,7 @@ const MediaConfigObject = z
         message: "'actions' must be an array of action definitions.",
       })
       .optional(),
+    transformations: TransformationsSchema.optional(),
   })
   .strict();
 
