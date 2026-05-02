@@ -806,12 +806,19 @@ const MediaView = ({
     </MediaUpload.DropZone>
   );
 
+  const previewableItems = useMemo(
+    () => gridItems.filter((g) => g.isImage || g.isVideo).map((g) => g.item),
+    [gridItems],
+  );
+
   const lightboxNode = (
     <MediaLightbox
       open={lightboxPath !== null}
       onOpenChange={(open) => { if (!open) setLightboxPath(null); }}
       name={mediaConfig.name}
       path={lightboxPath}
+      items={previewableItems}
+      onPathChange={setLightboxPath}
     />
   );
 
