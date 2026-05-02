@@ -220,7 +220,6 @@ export function CollectionGallery({
   const [isReordering, setIsReordering] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Reset local order when underlying data changes
   useMemo(() => setOrder(initialOrder), [initialOrder.join("")]);
 
   const itemsByPath = useMemo(() => {

@@ -67,9 +67,6 @@ function MediaUploadRoot({ children, path, onUpload, media, extensions, multiple
   const handleFiles = useCallback(async (files: File[]) => {
     try {
       for (const rawFile of files) {
-        // Re-encode raster images in the browser before upload when the
-        // media entry declares `transformations.raster_image` in .pages.yml.
-        // Pass-through (no-op) when not configured or on non-images.
         const file = await transformImage(
           rawFile,
           configMedia?.transformations,

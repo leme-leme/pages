@@ -1,19 +1,3 @@
-/**
- * S3-compatible storage (MinIO / R2) for media files too large for GitHub.
- * Files are stored in the configured bucket and served via the /api/s3/ proxy.
- *
- * Configuration via Worker env vars (set in wrangler.jsonc vars/secrets):
- *   PAGES_S3_ENDPOINT    e.g. "http://minio:6557" or "https://<account>.r2.cloudflarestorage.com"
- *   PAGES_S3_BUCKET      e.g. "pagescms-media"
- *   PAGES_S3_ACCESS_KEY  required to enable
- *   PAGES_S3_SECRET_KEY  required to enable
- *   PAGES_S3_REGION      default "us-east-1"
- *   PAGES_S3_THRESHOLD   bytes; files larger than this go to S3 (default 25 MB)
- *
- * isS3Configured() gates every other call so the feature is fully opt-in —
- * returns false when access/secret keys aren't set.
- */
-
 import { env } from "cloudflare:workers";
 import { S3Client, PutObjectCommand, DeleteObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
 
@@ -49,12 +33,10 @@ function getClient(): S3Client {
   });
 }
 
-/** S3 key for a media file: {owner}/{repo}/{branch}/{path} */
 export function s3Key(owner: string, repo: string, branch: string, path: string): string {
   return `${owner}/${repo}/${branch}/${path.replace(/^\//, "")}`;
 }
 
-/** Public URL served via our /api/s3/ proxy */
 export function s3PublicUrl(baseUrl: string, key: string): string {
   return `${baseUrl.replace(/\/$/, "")}/api/s3/${key}`;
 }
@@ -99,7 +81,6 @@ export async function s3Head(key: string): Promise<{ size: number; contentType?:
   }
 }
 
-/** Fetch a stored object (used by the proxy route). Returns Response-friendly fields. */
 export async function s3Get(key: string): Promise<{ body: ArrayBuffer; contentType: string; size: number } | null> {
   try {
     const c = cfg();

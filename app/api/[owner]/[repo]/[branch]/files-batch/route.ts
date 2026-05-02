@@ -1,15 +1,3 @@
-/**
- * Batch update multiple collection files in a single Git commit.
- *
- * POST /api/[owner]/[repo]/[branch]/files-batch
- * Body: { name: string, message?: string, updates: Array<{ path, content }> }
- *
- * Uses the GitHub Git Trees API: serialize+blob each file in parallel, then
- * createTree + createCommit + updateRef in three sequential calls. One commit
- * per batch keeps history clean — used by the collection-reorder UI to write
- * an atomic order-shift across N entries.
- */
-
 import { writeFns } from "@/fields/registry";
 import { deepMap, generateZodSchema, getSchemaByName, sanitizeObject } from "@/lib/schema";
 import { stringify } from "@/lib/serialization";
@@ -64,7 +52,6 @@ export async function POST(
       const zodSchema = generateZodSchema(contentFields, false, config.object);
       const zodValidation = zodSchema.safeParse(contentObject);
       if (!zodValidation.success) {
-        // Zod 4: ZodError exposes `.issues`, not `.errors`.
         const errs = zodValidation.error.issues.map((e) =>
           `${e.message}${e.path.length ? ` at ${e.path.join(".")}` : ""}`,
         );

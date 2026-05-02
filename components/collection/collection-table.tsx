@@ -149,14 +149,11 @@ export function CollectionTable<TData extends TableData>({
   path: string,
   isTree?: boolean,
   primaryField?: string,
-  /** When true, render a Reorder toggle that puts the table into a sortable mode. */
   reorderable?: boolean,
-  /** Called with the new file order (paths) when the user saves. */
   onReorder?: (orderedPaths: string[]) => Promise<void>,
 }) {
   const [expanded, setExpanded] = useState<ExpandedState>({});
 
-  // Reorder mode (only meaningful when reorderable === true).
   const initialFilePaths = useMemo(
     () => data.filter((d) => d.type === "file").map((d) => d.path as string),
     [data],
@@ -165,7 +162,6 @@ export function CollectionTable<TData extends TableData>({
   const [orderPaths, setOrderPaths] = useState<string[]>(initialFilePaths);
   const [isSavingOrder, setIsSavingOrder] = useState(false);
 
-  // Reset local order when underlying data changes (e.g. after a save).
   useEffect(() => {
     setOrderPaths(initialFilePaths);
   }, [initialFilePaths.join("")]);

@@ -20,14 +20,6 @@ type LocaleContextValue = {
 
 const LocaleContext = createContext<LocaleContextValue | null>(null);
 
-/**
- * LocaleProvider can run in two modes:
- *  - Uncontrolled: state lives inside the provider. Use when consumers
- *    only need to switch what's shown in field components.
- *  - Controlled: parent owns activeLocale + setter. Use when the parent
- *    needs to react to locale changes (e.g. Entry rewrites file paths
- *    via getLocalizedPath when locale changes).
- */
 export function LocaleProvider({
   locales,
   children,

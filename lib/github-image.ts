@@ -296,8 +296,7 @@ const getImgSrcs = (html: string) => {
   return Array.from(html.matchAll(regex));
 }
 
-// Translate a stored output-based path (e.g. "/media/foo.jpg") to
-// the repo input path (e.g. "static/media/foo.jpg") using media config.
+// Translate a stored output-based path (e.g. "/media/foo.jpg") to the repo input path.
 const outputToInputPath = (
   path: string,
   media: any,

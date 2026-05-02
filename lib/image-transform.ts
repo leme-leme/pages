@@ -1,34 +1,8 @@
-/**
- * Client-side raster-image transformation applied before media upload.
- *
- * Config shape mirrors Sveltia CMS's `media_library.config.transformations`
- * so the .pages.yml author can drop-in the same block they'd use there:
- *
- *   media:
- *     - name: images
- *       input: public/images
- *       output: /images
- *       transformations:
- *         raster_image:
- *           format: webp      # webp | jpeg | png
- *           quality: 82       # 0–100 (mapped to 0–1 for canvas API)
- *           width: 2400       # max dimension; aspect ratio preserved
- *           height: 2400
- *
- * Images uploaded through Pages CMS's media dialog get re-encoded in the
- * browser before the base64 body is posted to the /files endpoint — same
- * benefit Sveltia got: raw camera JPEGs go in, ~5–10× smaller WebPs hit
- * the repo.
- *
- * SVGs and unknown image types pass through unchanged. Non-image files
- * (videos, zips, docs) are untouched.
- */
-
 export type RasterTransform = {
   format?: "webp" | "jpeg" | "png";
-  quality?: number; // 0–100
-  width?: number;   // max width in px; aspect preserved
-  height?: number;  // max height in px; aspect preserved
+  quality?: number;
+  width?: number;
+  height?: number;
 };
 
 export type ImageTransformations = {
@@ -75,8 +49,6 @@ export async function transformImage(
   try {
     bitmap = await createImageBitmap(file);
   } catch (err) {
-    // createImageBitmap() can reject on exotic formats (HEIC on non-Safari,
-    // bad EXIF, etc.). Ship the original rather than blocking the upload.
     console.warn(`[image-transform] createImageBitmap failed for ${file.name}; uploading original.`, err);
     return file;
   }
@@ -85,7 +57,6 @@ export async function transformImage(
   const maxW = cfg.width;
   const maxH = cfg.height;
 
-  // Scale down only — never upscale small images.
   const scale = Math.min(
     maxW ? maxW / width  : 1,
     maxH ? maxH / height : 1,
@@ -94,8 +65,6 @@ export async function transformImage(
   width  = Math.round(width  * scale);
   height = Math.round(height * scale);
 
-  // Prefer OffscreenCanvas when available (background thread safe + faster);
-  // fall back to a detached <canvas> in browsers that don't expose it yet.
   const mime = FORMAT_MIME[format];
   let blob: Blob;
   try {
@@ -121,8 +90,6 @@ export async function transformImage(
       });
     }
   } finally {
-    // ImageBitmap holds a decoded-image buffer; release it so the GC
-    // doesn't have to chase it down later.
     (bitmap as any).close?.();
   }
 

@@ -17,14 +17,6 @@ export const getCollectionI18n = (collection: any, config: Config): boolean => {
   return !!(config.object as any)?.i18n;
 };
 
-/**
- * Translate a default-locale path into the equivalent path for `locale`,
- * matching common static-site i18n conventions:
- *
- * - multiple_files:    posts/hello.md           → posts/hello.fr.md
- * - multiple_folders:  posts/hello.md           → posts/fr/hello.md
- * - single_file:       posts/hello.md           → posts/hello.md  (one file, value is keyed inside)
- */
 export const getLocalizedPath = (
   originalPath: string,
   locale: string,

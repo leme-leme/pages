@@ -10,12 +10,6 @@ import {
 } from "@/components/ui/select";
 import { Globe } from "lucide-react";
 
-/**
- * Compact locale dropdown for the entry editor header. Renders nothing
- * unless a LocaleProvider is mounted above (i.e. the current schema is
- * i18n-enabled). Native names come from Intl.DisplayNames; fallback is
- * the upper-cased locale code.
- */
 export function LocaleSwitcher() {
   const locale = useLocale();
   if (!locale || locale.locales.length <= 1) return null;

@@ -126,10 +126,6 @@ export function Entry({
   }, [config, name]);
   const schemaType = schema?.type;
 
-  // i18n: track active locale at the Entry level so file paths can be
-  // rewritten per locale (multiple_files / multiple_folders). Active
-  // locale defaults to the configured default_locale; the LocaleSwitcher
-  // updates it via the controlled LocaleProvider mounted below.
   const i18nConfig = useMemo(() => getI18nConfig(config), [config]);
   const i18nEnabled = schema ? getCollectionI18n(schema, config) : false;
   const localeList = i18nEnabled && i18nConfig?.locales?.length ? i18nConfig.locales : null;
@@ -332,8 +328,6 @@ export function Entry({
 
     const savePromise = new Promise<ApiSuccess<EntryData>>(async (resolve, reject) => {
       try {
-        // Use the locale-rewritten path so saves to a non-default locale
-        // land at the structure-specific path (foo.fr.md / fr/foo.md).
         let savePath = effectivePath ?? path;
         const trimmedFilename = filenameValue.trim();
         const normalizedFilename = normalizePath(trimmedFilename).split("/").pop() || "";
@@ -351,18 +345,12 @@ export function Entry({
             ? normalizedFilename
             : generateFilename(schema.filename, schema, contentObject);
           const defaultPath = joinPathSegments([basePath, generatedFilename]);
-          // First create at the default-locale path, then rewrite for the
-          // active locale so non-default-locale creates land in the right
-          // place too.
           savePath = localeList && activeLocale !== defaultLocale
             ? getLocalizedPath(defaultPath, activeLocale, config)
             : defaultPath;
         } else if (filenameChanged && !canRename && schemaType === "collection") {
           throw new Error("Renaming this entry isn't allowed.");
         } else if (filenameChanged && localeList && activeLocale !== defaultLocale) {
-          // Rename is only allowed when editing the default locale —
-          // renaming a localized variant would orphan the other locales'
-          // files. Switch back to the default locale to rename.
           throw new Error("Switch to the default locale to rename this entry.");
         } else if (
           showFilenameField

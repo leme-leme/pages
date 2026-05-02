@@ -102,7 +102,6 @@ export async function POST(
             const zodValidation = zodSchema.safeParse(contentObject);
             
             if (zodValidation.success === false ) {
-              // Zod 4: ZodError exposes `.issues`, not `.errors`.
               const errorMessages = zodValidation.error.issues.map((issue) => {
                 let message = issue.message;
                 if (issue.path.length > 0) message = `${message} at ${issue.path.join(".")}`;
@@ -183,8 +182,6 @@ export async function POST(
             !schema.extensions.includes(getFileExtension(normalizedPath))
           ) throw new Error(`Invalid extension "${getFileExtension(normalizedPath)}" for media.`);
 
-          // Route large media files to S3 when configured. Falls through to
-          // GitHub when S3 isn't configured or the file is below threshold.
           const declaredSize: number | undefined = typeof data.size === "number" ? data.size : undefined;
           const approxSize = declaredSize ?? Math.floor((data.content?.length ?? 0) * 0.75);
           if (isS3Configured() && approxSize > S3_THRESHOLD_BYTES) {
@@ -528,10 +525,6 @@ export async function DELETE(
     if (!name && type === "content") throw new Error(`"name" is required.`);
     if (!sha) throw new Error(`"sha" is required.`);
 
-    // S3 DELETE shortcut: when the file lives in S3 (cache row has
-    // provider="s3"), delete from the bucket and update the cache row
-    // directly — no GitHub commit. Drops out of the rest of the handler
-    // because there's no Git ref to advance.
     if (type === "media" && isS3Configured()) {
       const cached = await db.query.cacheFileTable.findFirst({
         where: (t, { and, eq }) =>

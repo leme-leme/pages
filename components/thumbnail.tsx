@@ -14,6 +14,73 @@ function isVideo(path: string): boolean {
   return ext ? VIDEO_EXTENSIONS.has(ext) : false;
 }
 
+function VideoThumbnail({ src, alt }: { src: string; alt: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [duration, setDuration] = useState(0);
+  const [isHovering, setIsHovering] = useState(false);
+  const [hoverRatio, setHoverRatio] = useState(0);
+
+  const handleLoadedMetadata = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    setDuration(Number.isFinite(video.duration) ? video.duration : 0);
+    video.currentTime = 0.1;
+  };
+
+  const handleMouseMove = (event: React.MouseEvent<HTMLDivElement>) => {
+    const container = containerRef.current;
+    const video = videoRef.current;
+    if (!container || !video || !duration) return;
+    const rect = container.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+    setHoverRatio(ratio);
+    video.currentTime = ratio * duration;
+  };
+
+  const handleMouseEnter = () => setIsHovering(true);
+  const handleMouseLeave = () => {
+    setIsHovering(false);
+    const video = videoRef.current;
+    if (video) video.currentTime = 0.1;
+  };
+
+  return (
+    <div
+      ref={containerRef}
+      className="absolute inset-0"
+      onMouseEnter={handleMouseEnter}
+      onMouseMove={handleMouseMove}
+      onMouseLeave={handleMouseLeave}
+    >
+      <video
+        ref={videoRef}
+        src={src}
+        aria-label={alt}
+        className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+        muted
+        playsInline
+        preload="metadata"
+        onLoadedMetadata={handleLoadedMetadata}
+      />
+      {duration > 0 && (
+        <div
+          aria-hidden
+          className={cn(
+            "absolute left-0 right-0 bottom-0 h-0.5 bg-white/30 transition-opacity",
+            isHovering ? "opacity-100" : "opacity-0",
+          )}
+        >
+          <div
+            className="h-full bg-white"
+            style={{ width: `${hoverRatio * 100}%` }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Thumbnail({
   name,
   path,
@@ -25,13 +92,11 @@ export function Thumbnail({
 }) {
   const [rawUrl, setRawUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
 
   const { owner, repo, isPrivate } = useRepo();
   const { config } = useConfig();
   const branch = config?.branch!;
 
-  // Translate output path → repo input path so raw.githubusercontent.com works
   const repoPath = useMemo(() => {
     if (!path) return path;
     return outputToInputPath(path, config?.object?.media, name);
@@ -48,13 +113,6 @@ export function Thumbnail({
     return () => { cancelled = true; };
   }, [repoPath, owner, repo, branch, isPrivate, name]);
 
-  // Seek to first frame so the video element shows a poster thumbnail
-  const handleLoadedMetadata = () => {
-    if (videoRef.current) {
-      videoRef.current.currentTime = 0.1;
-    }
-  };
-
   return (
     <div
       className={cn(
@@ -65,15 +123,7 @@ export function Thumbnail({
       {path
         ? rawUrl
           ? isVideo(path)
-            ? <video
-                ref={videoRef}
-                src={rawUrl}
-                className="absolute inset-0 w-full h-full object-cover"
-                muted
-                playsInline
-                preload="metadata"
-                onLoadedMetadata={handleLoadedMetadata}
-              />
+            ? <VideoThumbnail src={rawUrl} alt={path.split("/").pop() || "thumbnail"} />
             : <img
                 src={rawUrl}
                 alt={path.split("/").pop() || "thumbnail"}

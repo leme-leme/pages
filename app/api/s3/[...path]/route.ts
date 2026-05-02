@@ -1,9 +1,3 @@
-/**
- * Public-read proxy for S3-stored media. Maps /api/s3/{owner}/{repo}/{branch}/{...path}
- * to the configured S3 bucket and streams the object back. Returns 404 when S3 isn't
- * configured or the object doesn't exist; relies on the bucket-side ACL for auth.
- */
-
 import { type NextRequest } from "next/server";
 import { isS3Configured, s3Get } from "@/lib/storage/s3";
 
