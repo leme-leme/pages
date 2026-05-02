@@ -91,7 +91,7 @@ const MediaLightbox = ({
         else if (e.key === "ArrowLeft") { e.preventDefault(); navigate(-1); }
         else if (e.key === "Escape") { e.preventDefault(); onClose(); }
       }}
-      className="flex-1 min-h-0 grid grid-rows-[1fr_auto_auto] gap-0 outline-none"
+      className="flex-1 min-h-0 grid grid-rows-[minmax(0,1fr)_auto_auto] gap-0 outline-none max-h-[calc(100dvh-5.5rem)] md:max-h-[calc(100dvh-6.5rem)]"
     >
       <div className="relative flex items-center justify-center min-h-0 overflow-hidden bg-muted/40 rounded-md">
         <Button
