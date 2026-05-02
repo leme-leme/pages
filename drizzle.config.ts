@@ -1,13 +1,10 @@
-import "./db/envConfig";
 import { defineConfig } from "drizzle-kit";
 
 export default defineConfig({
-  dialect: "postgresql",
+  dialect: "sqlite",
+  driver: "d1-http",
   schema: "./db/schema.ts",
   out: "./db/migrations",
   strict: true,
   verbose: true,
-  dbCredentials: {
-    url: process.env.DATABASE_URL!,
-  },
 });
