@@ -76,7 +76,7 @@ const schema = (field: Field, configObject?: Record<string, any>) => {
     ? undefined
     : field.options?.media && typeof field.options.media === 'string'
       ? getSchemaByName(configObject, field.options.media, "media")
-      : configObject.media?.[0]);
+      : Array.isArray(configObject.media) ? configObject.media[0] : configObject.media);
   const mediaInputPath = mediaConfig?.input;
   const allowedExtensions = getAllowedExtensions(field, mediaConfig);
   let zodSchema: z.ZodTypeAny;

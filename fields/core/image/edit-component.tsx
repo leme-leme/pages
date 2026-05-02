@@ -15,6 +15,7 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { getSchemaByName } from "@/lib/schema";
 import { Thumbnail } from "@/components/thumbnail";
+import { outputToInputPath } from "@/lib/github-image";
 import { getAllowedExtensions } from "./index";
 import type { Config } from "@/types/config";
 import type { Field } from "@/types/field";
@@ -47,11 +48,19 @@ type FieldOptions = {
   rename?: boolean | "safe" | "random";
 };
 
-const ImageTeaser = ({ file, config, onRemove }: { 
+const ImageTeaser = ({ file, config, mediaConfig, onRemove }: {
   file: string;
-  config: Pick<Config, "owner" | "repo" | "branch">;
+  config: Pick<Config, "owner" | "repo" | "branch"> & { object?: any };
+  mediaConfig?: { name?: string; input?: string; output?: string };
   onRemove?: () => void;
 }) => {
+  // Convert stored output path (e.g. /media/foo.jpg) to repo input path
+  // (e.g. static/media/foo.jpg) so GitHub blob links resolve correctly.
+  const repoPath = useMemo(() => {
+    if (!mediaConfig) return file?.replace(/^\//, "") ?? file;
+    return outputToInputPath(file, [mediaConfig], mediaConfig.name);
+  }, [file, mediaConfig]);
+
   return (
     <div className="absolute bottom-1 right-1 rounded-md bg-background/95 backdrop-blur-sm">
       <ButtonGroup>
@@ -59,7 +68,7 @@ const ImageTeaser = ({ file, config, onRemove }: {
           <TooltipTrigger asChild>
             <Button type="button" variant="ghost" size="icon-xs" asChild className="text-muted-foreground hover:text-foreground">
               <a
-                href={`https://github.com/${config.owner}/${config.repo}/blob/${config.branch}/${file}`}
+                href={`https://github.com/${config.owner}/${config.repo}/blob/${config.branch}/${repoPath}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label="View image on GitHub"
@@ -92,11 +101,12 @@ const ImageTeaser = ({ file, config, onRemove }: {
   )
 };
 
-const SortableItem = ({ id, file, config, media, onRemove, readonly = false }: { 
+const SortableItem = ({ id, file, config, media, mediaConfig, onRemove, readonly = false }: {
   id: string;
   file: string;
-  config: Pick<Config, "owner" | "repo" | "branch">;
+  config: Pick<Config, "owner" | "repo" | "branch"> & { object?: any };
   media: string;
+  mediaConfig?: { name?: string; input?: string; output?: string };
   onRemove?: () => void;
   readonly?: boolean;
 }) => {
@@ -118,11 +128,16 @@ const SortableItem = ({ id, file, config, media, onRemove, readonly = false }: {
   };
 
   return (
-    <div ref={setNodeRef} style={style}>
-      <div title={file} className={readonly ? undefined : "cursor-move"} {...(!readonly ? attributes : {})} {...(!readonly ? listeners : {})}>
-        <Thumbnail name={media} path={file} className="rounded-md w-28 h-28"/>
+    <div ref={setNodeRef} style={style} className="aspect-square">
+      <div
+        title={file}
+        className={readonly ? "w-full h-full" : "w-full h-full cursor-grab active:cursor-grabbing"}
+        {...(!readonly ? attributes : {})}
+        {...(!readonly ? listeners : {})}
+      >
+        <Thumbnail name={media} path={file} className="rounded-md w-full h-full object-cover"/>
       </div>
-      <ImageTeaser file={file} config={config} onRemove={onRemove} />
+      <ImageTeaser file={file} config={config} mediaConfig={mediaConfig} onRemove={onRemove} />
     </div>
   );
 };
@@ -283,36 +298,37 @@ const EditComponent = forwardRef((props: EditorProps, ref: React.Ref<HTMLInputEl
         <div className="space-y-2">
           {files.length > 0 && (
             isMultiple ? (
-              <div className="flex flex-wrap gap-2">
-                <DndContext 
-                  sensors={sensors}
-                  collisionDetection={closestCenter}
-                  onDragEnd={handleDragEnd}
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleDragEnd}
+              >
+                <SortableContext
+                  items={files.map(f => f.id)}
+                  strategy={rectSortingStrategy}
                 >
-                  <SortableContext 
-                    items={files.map(f => f.id)}
-                    strategy={rectSortingStrategy}
-                  >
+                  <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(7rem, 1fr))" }}>
                     {files.map((file) => (
-                      <SortableItem 
+                      <SortableItem
                         key={file.id}
                         id={file.id}
                         file={file.path}
                         config={config}
                         media={mediaConfig.name}
+                        mediaConfig={mediaConfig}
                         onRemove={isReadonly ? undefined : () => handleRemove(file.id)}
                         readonly={isReadonly}
                       />
                     ))}
-                  </SortableContext>
-                </DndContext>
-              </div>
+                  </div>
+                </SortableContext>
+              </DndContext>
             ) : (
               <div className="aspect-square w-28 relative">
                 <div title={files[0].path}>
                   <Thumbnail name={mediaConfig.name} path={files[0].path} className="rounded-md w-28 h-28"/>
                 </div>
-                <ImageTeaser file={files[0].path} config={config} onRemove={isReadonly ? undefined : () => handleRemove(files[0].id)} />
+                <ImageTeaser file={files[0].path} config={config} mediaConfig={mediaConfig} onRemove={isReadonly ? undefined : () => handleRemove(files[0].id)} />
               </div>
             )
           )}
@@ -321,13 +337,13 @@ const EditComponent = forwardRef((props: EditorProps, ref: React.Ref<HTMLInputEl
               <MediaUpload.Trigger>
                 <Button type="button" size="sm" variant="outline" className="gap-2">
                   <Upload className="h-3.5 w-3.5"/>
-                  Upload
+                  {isMultiple && files.length > 0 ? "Add more" : "Upload"}
                 </Button>
               </MediaUpload.Trigger>
               <MediaDialog
                 media={mediaConfig.name}
                 initialPath={rootPath}
-                maxSelected={remainingSlots}
+                maxSelected={remainingSlots === Infinity ? undefined : remainingSlots}
                 extensions={allowedExtensions}
                 onSubmit={handleSelected}
               >

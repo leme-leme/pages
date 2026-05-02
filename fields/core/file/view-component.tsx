@@ -15,11 +15,9 @@ const ViewComponent = ({
   const extraValuesCount = value && Array.isArray(value) ? value.length - 1 : 0;
 
   const filename = useMemo(() => {
-    return !value
-      ? null
-      : Array.isArray(value)
-        ? getFileName(value[0])
-        : getFileName(value);
+    if (!value) return null;
+    const first = Array.isArray(value) ? value[0] : value;
+    return first ? getFileName(first) : null;
   }, [value]);
 
   if (!filename) return null;

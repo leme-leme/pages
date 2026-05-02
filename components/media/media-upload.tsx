@@ -98,6 +98,7 @@ function MediaUploadRoot({ children, path, onUpload, media, extensions, multiple
               type: "media",
               name: configMedia.name,
               content,
+              size: file.size,
             }),
           });
 
