@@ -50,6 +50,11 @@ export const metadata: Metadata = {
     description,
     images: [socialImage],
   },
+  appleWebApp: {
+    capable: true,
+    title: "Pages CMS",
+    statusBarStyle: "default",
+  },
 };
 
 export default async function RootLayout({
