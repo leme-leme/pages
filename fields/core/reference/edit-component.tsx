@@ -83,11 +83,26 @@ const EditComponent = (props: any) => {
   const searchFields = typeof field.options?.search === "string" ? field.options.search : "name";
   const valueTemplate = typeof field.options?.value === "string" ? field.options.value : "{path}";
   const labelTemplate = typeof field.options?.label === "string" ? field.options.label : "{name}";
+  const pageSize = typeof field.options?.limit === "number" ? field.options.limit : 50;
 
   const [searchTerm, setSearchTerm] = useState("");
   const [options, setOptions] = useState<Option[]>([]);
   const [selectedOptions, setSelectedOptions] = useState<Option[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+
+  const buildSearchParams = (offset: number) => {
+    const params = new URLSearchParams({
+      query: searchTerm,
+      searchFields,
+      valueTemplate,
+      labelTemplate,
+      limit: String(pageSize),
+      offset: String(offset),
+    });
+    return params;
+  };
 
   useEffect(() => {
     if (!url || !collectionPath) return;
@@ -96,15 +111,8 @@ const EditComponent = (props: any) => {
     const timeoutId = window.setTimeout(async () => {
       if (!cancelled) setIsLoading(true);
 
-      const searchParams = new URLSearchParams({
-        query: searchTerm,
-        searchFields,
-        valueTemplate,
-        labelTemplate,
-      });
-
       try {
-        const response = await fetch(`${url}?${searchParams.toString()}`);
+        const response = await fetch(`${url}?${buildSearchParams(0).toString()}`);
         if (!response.ok) throw new Error("Fetch failed");
 
         const json = await response.json();
@@ -117,9 +125,10 @@ const EditComponent = (props: any) => {
           resolved: true,
         }));
         setOptions((previous) => optionsEqual(previous, nextOptions) ? previous : nextOptions);
+        setHasMore(Boolean(json?.data?.hasMore));
       } catch (error) {
         console.error("Error loading references:", error);
-        if (!cancelled) setOptions([]);
+        if (!cancelled) { setOptions([]); setHasMore(false); }
       } finally {
         if (!cancelled) setIsLoading(false);
       }
@@ -136,7 +145,40 @@ const EditComponent = (props: any) => {
     searchFields,
     valueTemplate,
     labelTemplate,
+    pageSize,
   ]);
+
+  const loadMore = async () => {
+    if (!url || !collectionPath || isLoadingMore || !hasMore) return;
+    setIsLoadingMore(true);
+    try {
+      const response = await fetch(`${url}?${buildSearchParams(options.length).toString()}`);
+      if (!response.ok) throw new Error("Fetch failed");
+      const json = await response.json();
+      const contents = Array.isArray(json?.data?.options) ? json.data.options : [];
+      const nextOptions: Option[] = contents.map((item: any) => ({
+        value: String(item.value ?? ""),
+        label: String(item.label ?? item.value ?? ""),
+        resolved: true,
+      }));
+      setOptions((prev) => {
+        const seen = new Set(prev.map((o) => o.value));
+        return [...prev, ...nextOptions.filter((o) => !seen.has(o.value))];
+      });
+      setHasMore(Boolean(json?.data?.hasMore));
+    } catch (error) {
+      console.error("Error loading more references:", error);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
+
+  const handleListScroll = (event: React.UIEvent<HTMLDivElement>) => {
+    const el = event.currentTarget;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 80) {
+      loadMore();
+    }
+  };
 
   const selectedValues = useMemo(
     () => normalizeInputValues(value, multiple),
@@ -286,11 +328,17 @@ const EditComponent = (props: any) => {
                 Loading options...
               </div>
             )}
-            <ComboboxList>
+            <ComboboxList onScroll={handleListScroll}>
               {(option: Option) => (
                 <ComboboxItem key={option.value} value={option}>{option.label}</ComboboxItem>
               )}
             </ComboboxList>
+            {isLoadingMore && (
+              <div className="flex items-center justify-center gap-2 py-2 text-center text-sm text-muted-foreground">
+                <Loader className="h-4 w-4 animate-spin" />
+                Loading more...
+              </div>
+            )}
           </ComboboxContent>
         </>
       ) : (
@@ -312,11 +360,17 @@ const EditComponent = (props: any) => {
                 Loading options...
               </div>
             )}
-            <ComboboxList>
+            <ComboboxList onScroll={handleListScroll}>
               {(option: Option) => (
                 <ComboboxItem key={option.value} value={option}>{option.label}</ComboboxItem>
               )}
             </ComboboxList>
+            {isLoadingMore && (
+              <div className="flex items-center justify-center gap-2 py-2 text-center text-sm text-muted-foreground">
+                <Loader className="h-4 w-4 animate-spin" />
+                Loading more...
+              </div>
+            )}
           </ComboboxContent>
         </>
       )}

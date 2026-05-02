@@ -29,7 +29,12 @@ const schema = (field: Field) => {
     return z.preprocess(
       (val) => {
         if (val === "" || val === null || val === undefined) return [];
-        return Array.isArray(val) ? val : [val];
+        if (Array.isArray(val)) return val;
+        // Frontmatter sometimes serializes a multi-reference list as a
+        // comma-separated string ("post-a,post-b"). Split + trim before
+        // validation so the array schema doesn't choke on the string form.
+        if (typeof val === "string") return val.split(",").map((s) => s.trim()).filter(Boolean);
+        return [val];
       },
       zodSchema
     );

@@ -28,7 +28,12 @@ const schema = (field: Field) => {
     return z.preprocess(
       (val) => {
         if (val === "" || val === null || val === undefined) return [];
-        return Array.isArray(val) ? val.map(String) : val;
+        if (Array.isArray(val)) return val.map(String);
+        // Frontmatter sometimes serializes a multi-select list as a
+        // comma-separated string ("a,b,c"). Split + trim so the array
+        // schema doesn't reject a coerced string value.
+        if (typeof val === "string") return val.split(",").map((s) => s.trim()).filter(Boolean);
+        return val;
       },
       zodSchema
     );

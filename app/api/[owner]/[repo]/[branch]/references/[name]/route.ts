@@ -45,6 +45,10 @@ export async function GET(
     const labelTemplate = searchParams.get("labelTemplate") || "{name}";
     const searchFields = searchParams.get("searchFields")?.split(",").filter(Boolean) || ["name"];
     const selectedValues = searchParams.getAll("value").filter(Boolean);
+    const limitRaw = searchParams.get("limit");
+    const offsetRaw = searchParams.get("offset");
+    const limit = limitRaw && /^\d+$/.test(limitRaw) ? Math.min(parseInt(limitRaw, 10), 500) : 50;
+    const offset = offsetRaw && /^\d+$/.test(offsetRaw) ? parseInt(offsetRaw, 10) : 0;
     const primaryField = getPrimaryField(schema);
 
     const requiredFields = Array.from(new Set([
@@ -95,10 +99,20 @@ export async function GET(
       ? options.filter((item) => selectedValues.includes(item.value))
       : filterReferenceOptions(options, parsedItems, query, searchFields);
 
+    // Selected-value resolution skips pagination — callers want every
+    // requested value resolved in one shot. Search/list mode paginates.
+    const paginated = selectedValues.length > 0
+      ? filtered
+      : filtered.slice(offset, offset + limit);
+
     return Response.json({
       status: "success",
       data: {
-        options: filtered,
+        options: paginated,
+        total: filtered.length,
+        hasMore: selectedValues.length === 0 && offset + paginated.length < filtered.length,
+        offset,
+        limit,
       },
     });
   } catch (error: any) {
