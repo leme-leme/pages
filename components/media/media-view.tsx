@@ -341,7 +341,7 @@ const MediaView = ({
   useEffect(() => {
     if (!swrMediaError) return;
     const message = swrMediaError instanceof Error ? swrMediaError.message : "Failed to fetch media.";
-    setError(message);
+    setError(/\b404\b/.test(message) ? "Not found" : message);
   }, [swrMediaError]);
 
   const isLoading = swrMediaLoading && !data;
