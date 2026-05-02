@@ -150,9 +150,14 @@ const CollectionHeaderActions = memo(function CollectionHeaderActions({
         />
       </div>
       {reorder?.enabled && (
-        <Button variant="outline" size="sm" onClick={reorder.start}>
-          <GripVertical className="h-3.5 w-3.5" /> Reorder
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="outline" size="icon" onClick={reorder.start} aria-label="Reorder">
+              <GripVertical />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Reorder</TooltipContent>
+        </Tooltip>
       )}
       {showFolderCreate && (
         <Tooltip>
