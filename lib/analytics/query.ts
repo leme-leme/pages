@@ -164,4 +164,115 @@ export async function storageBytesByDay(
   return res.data;
 }
 
+export type ResourceCount = { resourceId: string; resourceType: string; count: number; bytes: number };
+
+export async function topResources(
+  resourceType: "collection" | "media",
+  interval: "1d" | "7d" | "30d" | "90d" = "30d",
+  opts?: { owner?: string; repo?: string; limit?: number },
+): Promise<ResourceCount[]> {
+  const limit = Math.min(opts?.limit ?? 20, 100);
+  const indexFilter = resourceType === "media"
+    ? "(index1 = 'cms.media.upload' OR index1 = 'cms.media.delete')"
+    : "(index1 = 'cms.entry.create' OR index1 = 'cms.entry.update' OR index1 = 'cms.entry.delete')";
+  const sql = `
+    SELECT
+      ${ColumnMappings.resourceId} AS resourceId,
+      ${ColumnMappings.resourceType} AS resourceType,
+      SUM(${ColumnMappings.count}) AS count,
+      SUM(${ColumnMappings.bytes}) AS bytes
+    FROM ${safeIdent(DATASET)}
+    WHERE ${intervalSql(interval)}
+      AND ${indexFilter}
+      AND ${ColumnMappings.resourceId} != ''
+      ${repoFilterSql(opts?.owner, opts?.repo)}
+    GROUP BY resourceId, resourceType
+    ORDER BY count DESC
+    LIMIT ${limit}
+    FORMAT JSON
+  `;
+  const res = await aeQuery<ResourceCount>(sql);
+  return res.data;
+}
+
+export type CountryCount = { country: string; count: number };
+
+export async function topCountries(
+  interval: "1d" | "7d" | "30d" | "90d" = "30d",
+  opts?: { owner?: string; repo?: string; limit?: number },
+): Promise<CountryCount[]> {
+  const limit = Math.min(opts?.limit ?? 20, 100);
+  const sql = `
+    SELECT
+      ${ColumnMappings.country} AS country,
+      SUM(${ColumnMappings.count}) AS count
+    FROM ${safeIdent(DATASET)}
+    WHERE ${intervalSql(interval)}
+      AND ${ColumnMappings.country} != ''
+      ${repoFilterSql(opts?.owner, opts?.repo)}
+    GROUP BY country
+    ORDER BY count DESC
+    LIMIT ${limit}
+    FORMAT JSON
+  `;
+  const res = await aeQuery<CountryCount>(sql);
+  return res.data;
+}
+
+export type UserAgentBucket = { bucket: string; count: number };
+
+// Coarse bucket from the userAgent blob — derived in SQL since AE has no JS.
+// Buckets: bot / mobile / desktop / unknown.
+export async function userAgentBuckets(
+  interval: "1d" | "7d" | "30d" | "90d" = "30d",
+  opts?: { owner?: string; repo?: string },
+): Promise<UserAgentBucket[]> {
+  const sql = `
+    SELECT
+      multiIf(
+        positionCaseInsensitive(${ColumnMappings.userAgent}, 'bot') > 0
+          OR positionCaseInsensitive(${ColumnMappings.userAgent}, 'crawl') > 0
+          OR positionCaseInsensitive(${ColumnMappings.userAgent}, 'spider') > 0, 'bot',
+        positionCaseInsensitive(${ColumnMappings.userAgent}, 'mobi') > 0
+          OR positionCaseInsensitive(${ColumnMappings.userAgent}, 'android') > 0
+          OR positionCaseInsensitive(${ColumnMappings.userAgent}, 'iphone') > 0, 'mobile',
+        ${ColumnMappings.userAgent} = '', 'unknown',
+        'desktop'
+      ) AS bucket,
+      SUM(${ColumnMappings.count}) AS count
+    FROM ${safeIdent(DATASET)}
+    WHERE ${intervalSql(interval)}
+      AND index1 = 'cms.web-vital'
+      ${repoFilterSql(opts?.owner, opts?.repo)}
+    GROUP BY bucket
+    ORDER BY count DESC
+    FORMAT JSON
+  `;
+  const res = await aeQuery<UserAgentBucket>(sql);
+  return res.data;
+}
+
+export type RealtimeBucket = { minute: string; type: string; count: number };
+
+// Minute-bucketed events for the last 60 minutes. Used by the auto-refreshing
+// realtime card.
+export async function realtimeMinutes(
+  opts?: { owner?: string; repo?: string },
+): Promise<RealtimeBucket[]> {
+  const sql = `
+    SELECT
+      formatDateTime(toStartOfInterval(timestamp, INTERVAL '1' MINUTE), '%F %H:%M') AS minute,
+      ${ColumnMappings.eventType} AS type,
+      SUM(${ColumnMappings.count}) AS count
+    FROM ${safeIdent(DATASET)}
+    WHERE timestamp > NOW() - INTERVAL '60' MINUTE
+      ${repoFilterSql(opts?.owner, opts?.repo)}
+    GROUP BY minute, type
+    ORDER BY minute ASC
+    FORMAT JSON
+  `;
+  const res = await aeQuery<RealtimeBucket>(sql);
+  return res.data;
+}
+
 export { isConfigured as isAnalyticsQueryConfigured };

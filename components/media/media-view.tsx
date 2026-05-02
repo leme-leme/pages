@@ -633,6 +633,47 @@ const MediaView = ({
     }));
   }, [filteredData, imageExtensionsSet]);
 
+  const handleGridKeyDown = useCallback((event: React.KeyboardEvent<HTMLUListElement>) => {
+    const keys = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "Enter", " "];
+    if (!keys.includes(event.key)) return;
+    const ul = event.currentTarget;
+    const tiles = Array.from(ul.querySelectorAll<HTMLLIElement>('li[data-grid-index]'));
+    if (tiles.length === 0) return;
+    const active = document.activeElement as HTMLElement | null;
+    const currentTile = active?.closest("li[data-grid-index]") as HTMLLIElement | null;
+    const currentIndex = currentTile ? tiles.indexOf(currentTile) : -1;
+
+    if (event.key === "Enter" || event.key === " ") {
+      if (currentIndex < 0) return;
+      const item = gridItems[currentIndex];
+      if (!item) return;
+      event.preventDefault();
+      if (item.item.type === "dir") {
+        handleNavigate(item.item.path);
+      } else if (item.isImage) {
+        setLightboxPath(item.item.path);
+      }
+      return;
+    }
+
+    const firstTop = tiles[0].getBoundingClientRect().top;
+    const cols = tiles.findIndex((t) => t.getBoundingClientRect().top !== firstTop);
+    const columnCount = cols === -1 ? tiles.length : cols;
+
+    let nextIndex = currentIndex;
+    if (event.key === "ArrowRight") nextIndex = currentIndex < 0 ? 0 : Math.min(tiles.length - 1, currentIndex + 1);
+    else if (event.key === "ArrowLeft") nextIndex = currentIndex < 0 ? 0 : Math.max(0, currentIndex - 1);
+    else if (event.key === "ArrowDown") nextIndex = currentIndex < 0 ? 0 : Math.min(tiles.length - 1, currentIndex + columnCount);
+    else if (event.key === "ArrowUp") nextIndex = currentIndex < 0 ? 0 : Math.max(0, currentIndex - columnCount);
+    else if (event.key === "Home") nextIndex = 0;
+    else if (event.key === "End") nextIndex = tiles.length - 1;
+
+    if (nextIndex !== currentIndex) {
+      event.preventDefault();
+      tiles[nextIndex]?.focus();
+    }
+  }, [gridItems, handleNavigate, setLightboxPath]);
+
   if (!mediaConfig.input) {
     return (
       <Empty className="absolute inset-0 border-0 rounded-none">
@@ -682,47 +723,6 @@ const MediaView = ({
       );
     }
   }
-
-  const handleGridKeyDown = useCallback((event: React.KeyboardEvent<HTMLUListElement>) => {
-    const keys = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "Enter", " "];
-    if (!keys.includes(event.key)) return;
-    const ul = event.currentTarget;
-    const tiles = Array.from(ul.querySelectorAll<HTMLLIElement>('li[data-grid-index]'));
-    if (tiles.length === 0) return;
-    const active = document.activeElement as HTMLElement | null;
-    const currentTile = active?.closest("li[data-grid-index]") as HTMLLIElement | null;
-    const currentIndex = currentTile ? tiles.indexOf(currentTile) : -1;
-
-    if (event.key === "Enter" || event.key === " ") {
-      if (currentIndex < 0) return;
-      const item = gridItems[currentIndex];
-      if (!item) return;
-      event.preventDefault();
-      if (item.item.type === "dir") {
-        handleNavigate(item.item.path);
-      } else if (item.isImage) {
-        setLightboxPath(item.item.path);
-      }
-      return;
-    }
-
-    const firstTop = tiles[0].getBoundingClientRect().top;
-    const cols = tiles.findIndex((t) => t.getBoundingClientRect().top !== firstTop);
-    const columnCount = cols === -1 ? tiles.length : cols;
-
-    let nextIndex = currentIndex;
-    if (event.key === "ArrowRight") nextIndex = currentIndex < 0 ? 0 : Math.min(tiles.length - 1, currentIndex + 1);
-    else if (event.key === "ArrowLeft") nextIndex = currentIndex < 0 ? 0 : Math.max(0, currentIndex - 1);
-    else if (event.key === "ArrowDown") nextIndex = currentIndex < 0 ? 0 : Math.min(tiles.length - 1, currentIndex + columnCount);
-    else if (event.key === "ArrowUp") nextIndex = currentIndex < 0 ? 0 : Math.max(0, currentIndex - columnCount);
-    else if (event.key === "Home") nextIndex = 0;
-    else if (event.key === "End") nextIndex = tiles.length - 1;
-
-    if (nextIndex !== currentIndex) {
-      event.preventDefault();
-      tiles[nextIndex]?.focus();
-    }
-  }, [gridItems, handleNavigate, setLightboxPath]);
 
   const mediaGrid = (
     <MediaUpload.DropZone className="flex-1 overflow-auto scrollbar">
