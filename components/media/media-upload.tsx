@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, cloneElement, useMemo, useCallback, createContext, useContext, useState } from "react";
+import useSWR from "swr";
 import { useConfig } from "@/contexts/config-context";
 import { getUploadFileName, joinPathSegments } from "@/lib/utils/file";
 import { toast } from "sonner";
@@ -9,6 +10,27 @@ import { cn } from "@/lib/utils";
 import { requireApiSuccess } from "@/lib/api-client";
 import { transformImage } from "@/lib/image-transform";
 import type { FileSaveData } from "@/types/api";
+
+type StorageInfo = {
+  configured: boolean;
+  thresholdBytes: number;
+  maxFileBytes: number;
+  visibility: "public" | "private";
+};
+
+const DEFAULT_STORAGE_INFO: StorageInfo = {
+  configured: false,
+  thresholdBytes: 26214400,
+  maxFileBytes: -1,
+  visibility: "public",
+};
+
+const fetchStorageInfo = async (url: string): Promise<StorageInfo> => {
+  const response = await fetch(url);
+  if (!response.ok) return DEFAULT_STORAGE_INFO;
+  const json = await response.json();
+  return (json?.data as StorageInfo) ?? DEFAULT_STORAGE_INFO;
+};
 
 interface MediaUploadContextValue {
   handleFiles: (files: File[]) => Promise<void>;
@@ -64,8 +86,16 @@ function MediaUploadRoot({ children, path, onUpload, media, extensions, multiple
       : undefined;
   }, [extensions, configMedia?.extensions]);
 
+  const apiBase = `/api/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}`;
+  const { data: storageInfo } = useSWR<StorageInfo>(
+    `${apiBase}/storage/info`,
+    fetchStorageInfo,
+    { revalidateOnFocus: false, fallbackData: DEFAULT_STORAGE_INFO },
+  );
+
   const handleFiles = useCallback(async (files: File[]) => {
     try {
+      const info = storageInfo ?? DEFAULT_STORAGE_INFO;
       for (const rawFile of files) {
         const file = await transformImage(
           rawFile,
@@ -76,12 +106,22 @@ function MediaUploadRoot({ children, path, onUpload, media, extensions, multiple
           rename ?? configMedia?.rename,
         );
 
-        const PRESIGN_THRESHOLD = 25 * 1024 * 1024; // skip base64 round-trip past 25 MB
+        const PRESIGN_THRESHOLD = info.configured ? info.thresholdBytes : Number.POSITIVE_INFINITY;
         const MULTIPART_THRESHOLD = 100 * 1024 * 1024; // resumable past 100 MB
         const PART_SIZE = 8 * 1024 * 1024;
 
+        if (info.maxFileBytes !== -1 && file.size > info.maxFileBytes) {
+          throw new Error(
+            `${file.name} is ${(file.size / 1024 / 1024).toFixed(0)} MB; storage limit is ${(info.maxFileBytes / 1024 / 1024).toFixed(0)} MB.`,
+          );
+        }
+        if (!info.configured && file.size > 25 * 1024 * 1024) {
+          throw new Error(
+            `${file.name} is too large for GitHub uploads. Configure S3/R2 storage in Settings → Storage to upload files larger than 25 MB.`,
+          );
+        }
+
         const fullPath = joinPathSegments([path ?? "", uploadFilename]);
-        const apiBase = `/api/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}`;
 
         const uploadPromise = (async (): Promise<FileSaveData> => {
           if (file.size >= MULTIPART_THRESHOLD) {
@@ -129,7 +169,7 @@ function MediaUploadRoot({ children, path, onUpload, media, extensions, multiple
     } catch (error) {
       console.error(error);
     }
-  }, [config, path, configMedia?.name, configMedia?.rename, configMedia?.transformations, onUpload, rename]);
+  }, [apiBase, path, configMedia?.name, configMedia?.rename, configMedia?.transformations, onUpload, rename, storageInfo]);
 
   const contextValue = useMemo(() => ({
     handleFiles,
