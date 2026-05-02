@@ -48,7 +48,7 @@ import {
 import { useRepoHeader } from "@/components/repo/repo-header-context";
 import { LocaleProvider } from "@/contexts/locale-context";
 import { LocaleSwitcher } from "@/components/locale-switcher";
-import { getCollectionI18n, getI18nConfig } from "@/lib/i18n";
+import { getCollectionI18n, getI18nConfig, getLocalizedPath } from "@/lib/i18n";
 import {
   Breadcrumb,
   BreadcrumbEllipsis,
@@ -125,6 +125,20 @@ export function Entry({
     return getSchemaByName(config?.object, name)
   }, [config, name]);
   const schemaType = schema?.type;
+
+  // i18n: track active locale at the Entry level so file paths can be
+  // rewritten per locale (multiple_files / multiple_folders). Active
+  // locale defaults to the configured default_locale; the LocaleSwitcher
+  // updates it via the controlled LocaleProvider mounted below.
+  const i18nConfig = useMemo(() => getI18nConfig(config), [config]);
+  const i18nEnabled = schema ? getCollectionI18n(schema, config) : false;
+  const localeList = i18nEnabled && i18nConfig?.locales?.length ? i18nConfig.locales : null;
+  const defaultLocale = i18nConfig?.default_locale ?? localeList?.[0] ?? "";
+  const [activeLocale, setActiveLocale] = useState<string>(defaultLocale);
+  const effectivePath = useMemo(() => {
+    if (!path || !localeList || activeLocale === defaultLocale) return path;
+    return getLocalizedPath(path, activeLocale, config);
+  }, [activeLocale, config, defaultLocale, localeList, path]);
   const operations = useMemo(
     () =>
       resolveContentOperations({
@@ -208,10 +222,10 @@ export function Entry({
   }, [entryContentObject, path, schema, schemaType, showFilenameField]);
 
   const entryApiUrl = useMemo(() => (
-    path
-      ? `/api/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/entries/${encodeURIComponent(path)}?name=${encodeURIComponent(name)}`
+    effectivePath
+      ? `/api/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/entries/${encodeURIComponent(effectivePath)}?name=${encodeURIComponent(name)}`
       : null
-  ), [config.branch, config.owner, config.repo, name, path]);
+  ), [config.branch, config.owner, config.repo, name, effectivePath]);
 
   const fetchEntryByUrl = useCallback(async (apiUrl: string): Promise<EntryData> => {
     const response = await fetch(apiUrl);
@@ -318,7 +332,9 @@ export function Entry({
 
     const savePromise = new Promise<ApiSuccess<EntryData>>(async (resolve, reject) => {
       try {
-        let savePath = path;
+        // Use the locale-rewritten path so saves to a non-default locale
+        // land at the structure-specific path (foo.fr.md / fr/foo.md).
+        let savePath = effectivePath ?? path;
         const trimmedFilename = filenameValue.trim();
         const normalizedFilename = normalizePath(trimmedFilename).split("/").pop() || "";
 
@@ -334,9 +350,20 @@ export function Entry({
           const generatedFilename = showFilenameField
             ? normalizedFilename
             : generateFilename(schema.filename, schema, contentObject);
-          savePath = joinPathSegments([basePath, generatedFilename]);
+          const defaultPath = joinPathSegments([basePath, generatedFilename]);
+          // First create at the default-locale path, then rewrite for the
+          // active locale so non-default-locale creates land in the right
+          // place too.
+          savePath = localeList && activeLocale !== defaultLocale
+            ? getLocalizedPath(defaultPath, activeLocale, config)
+            : defaultPath;
         } else if (filenameChanged && !canRename && schemaType === "collection") {
           throw new Error("Renaming this entry isn't allowed.");
+        } else if (filenameChanged && localeList && activeLocale !== defaultLocale) {
+          // Rename is only allowed when editing the default locale —
+          // renaming a localized variant would orphan the other locales'
+          // files. Switch back to the default locale to rename.
+          throw new Error("Switch to the default locale to rename this entry.");
         } else if (
           showFilenameField
           && filenameFieldMode === "enabled"
@@ -841,13 +868,6 @@ export function Entry({
     );
   }
   
-  // i18n: when the schema (or root config) opts in, wrap the form in a
-  // LocaleProvider so the LocaleSwitcher in the header and the i18n field
-  // type can read/set the active locale.
-  const i18nConfig = getI18nConfig(config);
-  const i18nEnabled = schema ? getCollectionI18n(schema, config) : false;
-  const localeList = i18nEnabled && i18nConfig?.locales?.length ? i18nConfig.locales : null;
-
   const formNode = isLoading
     ? loadingSkeleton
     : <EntryForm
@@ -897,6 +917,10 @@ export function Entry({
       />;
 
   return localeList
-    ? <LocaleProvider locales={localeList}>{formNode}</LocaleProvider>
+    ? <LocaleProvider
+        locales={localeList}
+        activeLocale={activeLocale}
+        onActiveLocaleChange={setActiveLocale}
+      >{formNode}</LocaleProvider>
     : formNode;
 };

@@ -91,7 +91,7 @@ const schema = (field: Field, configObject?: Record<string, any>) => {
     let hasEmptyElementInArray = false;
 
     if (isMultiple) {
-      isEmpty = data === null || data === undefined || data.length === 0;
+      isEmpty = data === null || data === undefined || (Array.isArray(data) && data.length === 0);
       if (Array.isArray(data) && data.length > 0) { hasEmptyElementInArray = data.some(s => typeof s === 'string' && s === ""); }
     } else {
       isEmpty = data === null || data === undefined || data === "";
