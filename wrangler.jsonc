@@ -19,9 +19,15 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "pages-cms-db",
-      "database_id": "99d863d1-a0e4-4821-8368-b4371342a0bd",
+      "database_name": "pages-cms-vinext-db",
+      "database_id": "64652a9b-07d3-497b-a283-f4c706325fc3",
       "migrations_dir": "db/migrations"
     }
-  ]
+  ],
+  "triggers": {
+    "crons": [
+      "0 3 * * *",
+      "*/30 * * * *"
+    ]
+  }
 }
