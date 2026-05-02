@@ -3,7 +3,9 @@
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { getInstallationRepos, getInstallations } from "@/lib/github-app";
-import { requireGithubRepoWriteAccess } from "@/lib/authz-server";
+import { requireGithubRepoWriteAccess, resolveRepoAccess } from "@/lib/authz-server";
+import { canManageCollaborators, type Role } from "@/lib/permissions";
+import { recordAuditEvent } from "@/lib/audit";
 import { InviteEmailTemplate } from "@/components/email/invite";
 import { CollaboratorAddedEmailTemplate } from "@/components/email/collaborator-added";
 import { render } from "@react-email/render";
@@ -11,10 +13,12 @@ import { sendEmail } from "@/lib/mailer";
 import { getBaseUrl } from "@/lib/base-url";
 import { db } from "@/db";
 import { and, eq, sql } from "drizzle-orm";
-import { collaboratorTable, verificationTable } from "@/db/schema";
+import { collaboratorTable, collaboratorGrantTable, verificationTable } from "@/db/schema";
 import { z } from "zod";
 import { randomBytes, randomUUID } from "crypto";
 import { findVerifiedUserByEmail, normalizeEmail } from "@/lib/collaborator-access";
+
+const VALID_ROLES: Role[] = ["owner", "editor", "author", "viewer"];
 
 const parseInviteEmails = (raw: FormDataEntryValue | null) => {
   const value = typeof raw === "string" ? raw : "";
@@ -27,10 +31,38 @@ const parseInviteEmails = (raw: FormDataEntryValue | null) => {
   return z.array(z.string().email()).safeParse(unique);
 };
 
+const parseRole = (raw: FormDataEntryValue | null): Role => {
+  const value = typeof raw === "string" ? raw : "";
+  return (VALID_ROLES as string[]).includes(value) ? (value as Role) : "editor";
+};
+
+const parseBranch = (raw: FormDataEntryValue | null): string | null => {
+  const value = typeof raw === "string" ? raw.trim() : "";
+  return value === "" || value === "*" ? null : value;
+};
+
+const parseGrants = (raw: FormDataEntryValue | null) => {
+  const value = typeof raw === "string" ? raw : "";
+  if (!value.trim()) return [] as { scopeType: "collection" | "file" | "media"; scopeValue: string; permission: "read" | "write" | "publish" | "admin" }[];
+  try {
+    const parsed = JSON.parse(value);
+    return z.array(z.object({
+      scopeType: z.enum(["collection", "file", "media"]),
+      scopeValue: z.string().min(1),
+      permission: z.enum(["read", "write", "publish", "admin"]).default("write"),
+    })).parse(parsed);
+  } catch {
+    return [];
+  }
+};
+
+// For owner-level invites we still need the GitHub installation context
+// (so that the magic link works for non-GitHub identities). For
+// delegated invites the existing user just needs admin on the repo.
 const assertRepoInInstallation = async (
   user: { id: string; githubUsername?: string | null },
   owner: string,
-  repo: string
+  repo: string,
 ) => {
   const { token, repoAccess } = await requireGithubRepoWriteAccess(
     user,
@@ -50,9 +82,46 @@ const assertRepoInInstallation = async (
   );
   if (!isInstalledForRepo) throw new Error(`"${owner}/${repo}" is not part of your Pages CMS installation.`);
 
+  return { repoAccess, installation: installations[0] };
+};
+
+// Lighter-weight check used by delegated invites: any caller with admin
+// permission (via owner role or admin grant) can invite. Falls back to
+// `assertRepoInInstallation` if the caller is the GitHub owner so we
+// still capture the installation row for new invites.
+const resolveInviteContext = async (
+  user: { id: string; email: string; githubUsername?: string | null },
+  owner: string,
+  repo: string,
+) => {
+  const access = await resolveRepoAccess(user, owner, repo);
+  if (!canManageCollaborators(access)) {
+    throw new Error("You do not have permission to manage collaborators on this repository.");
+  }
+
+  if (access.source === "github-owner" || access.source === "github-write") {
+    return assertRepoInInstallation(user, owner, repo);
+  }
+
+  // Delegated invite: reuse installation/owner ids from an existing collaborator row.
+  const sibling = await db.query.collaboratorTable.findFirst({
+    where: and(
+      sql`lower(${collaboratorTable.owner}) = lower(${owner})`,
+      sql`lower(${collaboratorTable.repo}) = lower(${repo})`,
+    ),
+  });
+  if (!sibling) {
+    throw new Error("Cannot delegate invite: repository has no installation context yet.");
+  }
   return {
-    repoAccess,
-    installation: installations[0],
+    repoAccess: {
+      repoId: sibling.repoId ?? 0,
+      ownerId: sibling.ownerId,
+      ownerLogin: sibling.owner,
+      repoName: sibling.repo,
+      ownerType: sibling.type as "user" | "org",
+    },
+    installation: { id: sibling.installationId },
   };
 };
 
@@ -65,11 +134,7 @@ const generateMagicLinkToken = () => {
   const alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
   const bytes = randomBytes(32);
   let token = "";
-
-  for (let i = 0; i < 32; i += 1) {
-    token += alphabet[bytes[i] % alphabet.length];
-  }
-
+  for (let i = 0; i < 32; i += 1) token += alphabet[bytes[i] % alphabet.length];
   return token;
 };
 
@@ -109,40 +174,43 @@ const createCollaboratorInviteMagicLink = async ({
   inviteUrl.searchParams.set("owner", owner);
   inviteUrl.searchParams.set("repo", repo);
   inviteUrl.searchParams.set("redirect", redirectPath);
-
   return inviteUrl.toString();
 };
 
-// Invite a collaborator to a repository.
 const handleAddCollaborator = async (prevState: any, formData: FormData) => {
-	try {
-		// TODO: remove the requirement for Github account, let any collaborator invite others
-		const session = await auth.api.getSession({
-      headers: await headers(),
-    });
+  try {
+    const session = await auth.api.getSession({ headers: await headers() });
     const user = session?.user;
-		if (!user) throw new Error("You must be signed in with GitHub to invite collaborators.");
+    if (!user) throw new Error("You must be signed in to invite collaborators.");
 
-		// TODO: add support for branches
-		const ownerAndRepoValidation = z.object({
-			owner: z.string().trim().min(1),
-			repo: z.string().trim().min(1),
-		}).safeParse({
-			owner: formData.get("owner"),
-			repo: formData.get("repo")
-		});
-		if (!ownerAndRepoValidation.success) throw new Error ("Invalid owner and/or repo");
+    const ownerAndRepo = z.object({
+      owner: z.string().trim().min(1),
+      repo: z.string().trim().min(1),
+    }).safeParse({
+      owner: formData.get("owner"),
+      repo: formData.get("repo"),
+    });
+    if (!ownerAndRepo.success) throw new Error("Invalid owner and/or repo");
 
-		const owner = ownerAndRepoValidation.data.owner;
-		const repo = ownerAndRepoValidation.data.repo;
+    const owner = ownerAndRepo.data.owner;
+    const repo = ownerAndRepo.data.repo;
+    const role = parseRole(formData.get("role"));
+    const branch = parseBranch(formData.get("branch"));
+    const grants = parseGrants(formData.get("grants"));
 
     const emailsValidation = parseInviteEmails(formData.get("emails") ?? formData.get("email"));
-		if (!emailsValidation.success || emailsValidation.data.length === 0) throw new Error("Invalid email list");
+    if (!emailsValidation.success || emailsValidation.data.length === 0) {
+      throw new Error("Invalid email list");
+    }
     const emails = emailsValidation.data;
 
-    const { repoAccess, installation } = await assertRepoInInstallation(user, owner, repo);
+    const { repoAccess, installation } = await resolveInviteContext(
+      { id: user.id, email: user.email!, githubUsername: user.githubUsername },
+      owner,
+      repo,
+    );
 
-		const baseUrl = getBaseUrl();
+    const baseUrl = getBaseUrl();
     const repoUrl = new URL(`/${owner}/${repo}`, baseUrl).toString();
     const createdCollaborators: (typeof collaboratorTable.$inferSelect)[] = [];
     const errors: string[] = [];
@@ -152,18 +220,18 @@ const handleAddCollaborator = async (prevState: any, formData: FormData) => {
     for (const email of emails) {
       const normalizedEmail = normalizeEmail(email);
       const existingUser = await findVerifiedUserByEmail(normalizedEmail);
-      const collaborator = await db.query.collaboratorTable.findFirst({
-				where: and(
-        eq(collaboratorTable.ownerId, repoAccess.ownerId),
-        eq(collaboratorTable.repoId, repoAccess.repoId),
-					sql`lower(${collaboratorTable.email}) = lower(${normalizedEmail})`
-      ),
-			});
-      if (collaborator) {
-        if (existingUser && collaborator.userId !== existingUser.id) {
+      const existing = await db.query.collaboratorTable.findFirst({
+        where: and(
+          eq(collaboratorTable.ownerId, repoAccess.ownerId),
+          eq(collaboratorTable.repoId, repoAccess.repoId),
+          sql`lower(${collaboratorTable.email}) = lower(${normalizedEmail})`,
+        ),
+      });
+      if (existing) {
+        if (existingUser && existing.userId !== existingUser.id) {
           const updated = await db.update(collaboratorTable)
-            .set({ userId: existingUser.id })
-            .where(eq(collaboratorTable.id, collaborator.id))
+            .set({ userId: existingUser.id, role, branch })
+            .where(eq(collaboratorTable.id, existing.id))
             .returning();
           if (updated.length > 0) {
             createdCollaborators.push(...updated);
@@ -182,20 +250,14 @@ const handleAddCollaborator = async (prevState: any, formData: FormData) => {
           baseUrl,
         });
         try {
-          const html = await render(
-            InviteEmailTemplate({
-              inviteUrl,
-              repoName: `${formData.get("owner")}/${formData.get("repo")}`,
-              email: normalizedEmail,
-              invitedByName: user.name || user.githubUsername || user.email,
-              invitedByUrl: `https://github.com/${user.githubUsername}`,
-            }),
-          );
-          await sendEmail({
-            to: normalizedEmail,
-            subject: `Join "${owner}/${repo}" on Pages CMS`,
-            html,
-          });
+          const html = await render(InviteEmailTemplate({
+            inviteUrl,
+            repoName: `${owner}/${repo}`,
+            email: normalizedEmail,
+            invitedByName: user.name || user.githubUsername || user.email,
+            invitedByUrl: user.githubUsername ? `https://github.com/${user.githubUsername}` : "",
+          }));
+          await sendEmail({ to: normalizedEmail, subject: `Join "${owner}/${repo}" on Pages CMS`, html });
         } catch (error: any) {
           console.error(`Failed to send invitation email to ${normalizedEmail}:`, error.message);
           errors.push(`${normalizedEmail}: ${error.message}`);
@@ -203,20 +265,14 @@ const handleAddCollaborator = async (prevState: any, formData: FormData) => {
         }
       } else {
         try {
-          const html = await render(
-            CollaboratorAddedEmailTemplate({
-              email: normalizedEmail,
-              repoName: `${formData.get("owner")}/${formData.get("repo")}`,
-              repoUrl,
-              invitedByName: user.name || user.githubUsername || user.email,
-              invitedByUrl: `https://github.com/${user.githubUsername}`,
-            }),
-          );
-          await sendEmail({
-            to: normalizedEmail,
-            subject: `You were added to "${owner}/${repo}" on Pages CMS`,
-            html,
-          });
+          const html = await render(CollaboratorAddedEmailTemplate({
+            email: normalizedEmail,
+            repoName: `${owner}/${repo}`,
+            repoUrl,
+            invitedByName: user.name || user.githubUsername || user.email,
+            invitedByUrl: user.githubUsername ? `https://github.com/${user.githubUsername}` : "",
+          }));
+          await sendEmail({ to: normalizedEmail, subject: `You were added to "${owner}/${repo}" on Pages CMS`, html });
         } catch (error: any) {
           console.error(`Failed to send collaborator notification email to ${normalizedEmail}:`, error.message);
           errors.push(`${normalizedEmail}: ${error.message}`);
@@ -230,18 +286,37 @@ const handleAddCollaborator = async (prevState: any, formData: FormData) => {
         repoId: repoAccess.repoId,
         owner: repoAccess.ownerLogin,
         repo: repoAccess.repoName,
+        branch,
         email: normalizedEmail,
         userId: existingUser?.id ?? null,
-        invitedBy: user.id
+        invitedBy: user.id,
+        role,
       }).returning();
 
       if (inserted.length > 0) {
-        createdCollaborators.push(...inserted);
+        const newRow = inserted[0];
+        if (grants.length > 0) {
+          await db.insert(collaboratorGrantTable).values(grants.map((g) => ({
+            collaboratorId: newRow.id,
+            scopeType: g.scopeType,
+            scopeValue: g.scopeValue,
+            permission: g.permission,
+          })));
+        }
+        createdCollaborators.push(newRow);
         if (existingUser) {
           immediateAccessCount += 1;
         } else {
           pendingInviteCount += 1;
         }
+        await recordAuditEvent({
+          actor: { userId: user.id, email: user.email },
+          action: "collaborator.invite",
+          resourceType: "collaborator",
+          resourceId: String(newRow.id),
+          owner, repo, branch: branch ?? undefined,
+          after: { email: normalizedEmail, role, branch, grants: grants.length },
+        });
       }
     }
 
@@ -249,7 +324,7 @@ const handleAddCollaborator = async (prevState: any, formData: FormData) => {
       throw new Error(errors.join(" "));
     }
 
-		return {
+    return {
       message:
         immediateAccessCount > 0 && pendingInviteCount > 0
           ? `${immediateAccessCount} collaborator${immediateAccessCount === 1 ? "" : "s"} added immediately and ${pendingInviteCount} invite${pendingInviteCount === 1 ? "" : "s"} sent for "${owner}/${repo}".`
@@ -258,78 +333,100 @@ const handleAddCollaborator = async (prevState: any, formData: FormData) => {
             : pendingInviteCount === 1
               ? `${createdCollaborators[0].email} invited to "${owner}/${repo}".`
               : `${pendingInviteCount} collaborators invited to "${owner}/${repo}".`,
-			data: createdCollaborators,
-      errors
-		};
-	} catch (error: any) {
-		console.error(error);
-		return { error: error.message };
-	}
+      data: createdCollaborators,
+      errors,
+    };
+  } catch (error: any) {
+    console.error(error);
+    return { error: error.message };
+  }
 };
 
-// Remove a collaborator from a repository.
 const handleRemoveCollaborator = async (collaboratorId: number, owner: string, repo: string) => {
-	try {
-		const session = await auth.api.getSession({
-      headers: await headers(),
-    });
+  try {
+    const session = await auth.api.getSession({ headers: await headers() });
     const user = session?.user;
-		if (!user) throw new Error("You must be signed in with GitHub to invite collaborators.");
+    if (!user) throw new Error("You must be signed in to manage collaborators.");
 
-		const collaborator = await db.query.collaboratorTable.findFirst({ where: eq(collaboratorTable.id, collaboratorId) });
-		if (!collaborator) throw new Error("Collaborator not found");
+    const access = await resolveRepoAccess(
+      { id: user.id, email: user.email!, githubUsername: user.githubUsername },
+      owner,
+      repo,
+    );
+    if (!canManageCollaborators(access)) {
+      throw new Error("You do not have permission to manage collaborators on this repository.");
+    }
 
-    const { repoAccess } = await assertRepoInInstallation(user, owner, repo);
+    const collaborator = await db.query.collaboratorTable.findFirst({
+      where: eq(collaboratorTable.id, collaboratorId),
+    });
+    if (!collaborator) throw new Error("Collaborator not found");
 
-		const deletedCollaborator = await db.delete(collaboratorTable).where(
-			and(
-				eq(collaboratorTable.id, collaboratorId),
-				eq(collaboratorTable.repoId, repoAccess.repoId)
-			)
-		).returning();
+    const deletedCollaborator = await db.delete(collaboratorTable).where(
+      and(
+        eq(collaboratorTable.id, collaboratorId),
+        sql`lower(${collaboratorTable.owner}) = lower(${owner})`,
+        sql`lower(${collaboratorTable.repo}) = lower(${repo})`,
+      ),
+    ).returning();
 
-		if (!deletedCollaborator || deletedCollaborator.length === 0) throw new Error("Failed to delete collaborator");
+    if (!deletedCollaborator || deletedCollaborator.length === 0) {
+      throw new Error("Failed to delete collaborator");
+    }
 
-		return { message: `Invitation to ${collaborator.email} for "${owner}/${repo}" successfully removed.` };
-	} catch (error: any) {
-		console.error(error);
-		return { error: error.message };
-	}
+    await recordAuditEvent({
+      actor: { userId: user.id, email: user.email },
+      action: "collaborator.remove",
+      resourceType: "collaborator",
+      resourceId: String(collaboratorId),
+      owner, repo,
+      before: { email: collaborator.email, role: collaborator.role, branch: collaborator.branch },
+    });
+
+    return { message: `Invitation to ${collaborator.email} for "${owner}/${repo}" successfully removed.` };
+  } catch (error: any) {
+    console.error(error);
+    return { error: error.message };
+  }
 };
 
 const handleResendCollaboratorInvite = async (collaboratorId: number, owner: string, repo: string) => {
   try {
-    const session = await auth.api.getSession({
-      headers: await headers(),
-    });
+    const session = await auth.api.getSession({ headers: await headers() });
     const user = session?.user;
-    if (!user) throw new Error("You must be signed in with GitHub to resend collaborator invites.");
-    await assertRepoInInstallation(user, owner, repo);
+    if (!user) throw new Error("You must be signed in to resend collaborator invites.");
 
-    const collaborator = await db.query.collaboratorTable.findFirst({ where: eq(collaboratorTable.id, collaboratorId) });
+    const access = await resolveRepoAccess(
+      { id: user.id, email: user.email!, githubUsername: user.githubUsername },
+      owner,
+      repo,
+    );
+    if (!canManageCollaborators(access)) {
+      throw new Error("You do not have permission to manage collaborators on this repository.");
+    }
+
+    const collaborator = await db.query.collaboratorTable.findFirst({
+      where: eq(collaboratorTable.id, collaboratorId),
+    });
     if (!collaborator) throw new Error("Collaborator not found");
 
-    if (collaborator.owner.toLowerCase() !== owner.toLowerCase() || collaborator.repo.toLowerCase() !== repo.toLowerCase()) {
+    if (collaborator.owner.toLowerCase() !== owner.toLowerCase() ||
+        collaborator.repo.toLowerCase() !== repo.toLowerCase()) {
       throw new Error("Collaborator does not belong to this repository.");
     }
 
     const baseUrl = getBaseUrl();
     const inviteUrl = await createCollaboratorInviteMagicLink({
-      email: collaborator.email,
-      owner,
-      repo,
-      baseUrl,
+      email: collaborator.email, owner, repo, baseUrl,
     });
 
-    const html = await render(
-      InviteEmailTemplate({
-        inviteUrl,
-        repoName: `${owner}/${repo}`,
-        email: collaborator.email,
-        invitedByName: user.name || user.githubUsername || user.email,
-        invitedByUrl: `https://github.com/${user.githubUsername}`,
-      }),
-    );
+    const html = await render(InviteEmailTemplate({
+      inviteUrl,
+      repoName: `${owner}/${repo}`,
+      email: collaborator.email,
+      invitedByName: user.name || user.githubUsername || user.email,
+      invitedByUrl: user.githubUsername ? `https://github.com/${user.githubUsername}` : "",
+    }));
 
     await sendEmail({
       to: collaborator.email,
@@ -344,4 +441,123 @@ const handleResendCollaboratorInvite = async (collaboratorId: number, owner: str
   }
 };
 
-export { handleAddCollaborator, handleRemoveCollaborator, handleResendCollaboratorInvite };
+const updateRoleSchema = z.object({
+  role: z.enum(["owner", "editor", "author", "viewer"]),
+  branch: z.string().optional().nullable(),
+});
+
+const handleUpdateCollaboratorRole = async (
+  collaboratorId: number,
+  owner: string,
+  repo: string,
+  payload: { role: Role; branch?: string | null },
+) => {
+  try {
+    const session = await auth.api.getSession({ headers: await headers() });
+    const user = session?.user;
+    if (!user) throw new Error("You must be signed in to manage collaborators.");
+
+    const access = await resolveRepoAccess(
+      { id: user.id, email: user.email!, githubUsername: user.githubUsername },
+      owner,
+      repo,
+    );
+    if (!canManageCollaborators(access)) {
+      throw new Error("You do not have permission to manage collaborators on this repository.");
+    }
+
+    const parsed = updateRoleSchema.parse(payload);
+    const branch = parsed.branch === undefined ? undefined : (parsed.branch && parsed.branch.trim() !== "" ? parsed.branch.trim() : null);
+
+    const before = await db.query.collaboratorTable.findFirst({
+      where: eq(collaboratorTable.id, collaboratorId),
+    });
+    if (!before) throw new Error("Collaborator not found");
+
+    await db.update(collaboratorTable)
+      .set({ role: parsed.role, ...(branch !== undefined ? { branch } : {}) })
+      .where(eq(collaboratorTable.id, collaboratorId));
+
+    await recordAuditEvent({
+      actor: { userId: user.id, email: user.email },
+      action: "collaborator.update-role",
+      resourceType: "collaborator",
+      resourceId: String(collaboratorId),
+      owner, repo,
+      before: { role: before.role, branch: before.branch },
+      after: { role: parsed.role, branch: branch ?? before.branch },
+    });
+
+    return { message: "Collaborator updated." };
+  } catch (error: any) {
+    console.error(error);
+    return { error: error.message };
+  }
+};
+
+const grantsSchema = z.array(z.object({
+  scopeType: z.enum(["collection", "file", "media"]),
+  scopeValue: z.string().min(1),
+  permission: z.enum(["read", "write", "publish", "admin"]).default("write"),
+}));
+
+const handleSetCollaboratorGrants = async (
+  collaboratorId: number,
+  owner: string,
+  repo: string,
+  grants: unknown,
+) => {
+  try {
+    const session = await auth.api.getSession({ headers: await headers() });
+    const user = session?.user;
+    if (!user) throw new Error("You must be signed in to manage collaborators.");
+
+    const access = await resolveRepoAccess(
+      { id: user.id, email: user.email!, githubUsername: user.githubUsername },
+      owner,
+      repo,
+    );
+    if (!canManageCollaborators(access)) {
+      throw new Error("You do not have permission to manage collaborators on this repository.");
+    }
+
+    const parsed = grantsSchema.parse(grants);
+
+    const before = await db.query.collaboratorGrantTable.findMany({
+      where: eq(collaboratorGrantTable.collaboratorId, collaboratorId),
+    });
+
+    await db.delete(collaboratorGrantTable).where(eq(collaboratorGrantTable.collaboratorId, collaboratorId));
+    if (parsed.length > 0) {
+      await db.insert(collaboratorGrantTable).values(parsed.map((g) => ({
+        collaboratorId,
+        scopeType: g.scopeType,
+        scopeValue: g.scopeValue,
+        permission: g.permission,
+      })));
+    }
+
+    await recordAuditEvent({
+      actor: { userId: user.id, email: user.email },
+      action: "collaborator.update-grants",
+      resourceType: "collaborator",
+      resourceId: String(collaboratorId),
+      owner, repo,
+      before: before.map((g) => ({ scopeType: g.scopeType, scopeValue: g.scopeValue, permission: g.permission })),
+      after: parsed,
+    });
+
+    return { message: "Permissions updated." };
+  } catch (error: any) {
+    console.error(error);
+    return { error: error.message };
+  }
+};
+
+export {
+  handleAddCollaborator,
+  handleRemoveCollaborator,
+  handleResendCollaboratorInvite,
+  handleUpdateCollaboratorRole,
+  handleSetCollaboratorGrants,
+};

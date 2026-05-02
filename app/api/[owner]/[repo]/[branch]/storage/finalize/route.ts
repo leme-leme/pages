@@ -93,6 +93,17 @@ export async function POST(
       after: { provider: "s3", key: parsed.data.key, size: head.size, source: "presigned" },
     });
 
+    if (isImage(parsed.data.key)) {
+      generateImageVariants(cfg, parsed.data.key)
+        .then((result) =>
+          recordUsage(params.owner, params.repo, params.branch, {
+            bytesStoredDelta: result.written.reduce((sum, v) => sum + v.size, 0),
+            fileCountDelta: result.written.length,
+          }),
+        )
+        .catch((error) => console.warn("[finalize] variant generation failed", error));
+    }
+
     return Response.json({
       status: "success",
       data: {

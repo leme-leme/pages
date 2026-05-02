@@ -33,7 +33,7 @@ export async function GET(
     const { token } = await getToken(user, params.owner, params.repo);
     if (!token) throw createHttpError("Token not found", 401);
 
-    const searchParams = request.nextUrl.searchParams;
+    const searchParams = new URL(request.url).searchParams;
     const name = searchParams.get("name");
     const metaOnly =
       searchParams.get("meta") === "true" ||

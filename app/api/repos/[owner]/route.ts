@@ -33,7 +33,7 @@ export async function GET(
     let githubRepos: any[] = [];
     let collaboratorRepos: any[] = [];
 
-    const searchParams = request.nextUrl.searchParams;
+    const searchParams = new URL(request.url).searchParams;
     const type = searchParams.get("type");
 
     const githubAccount = await getGithubAccount(user.id);

@@ -7,6 +7,8 @@ import {
   handleAddCollaborator,
   handleRemoveCollaborator,
   handleResendCollaboratorInvite,
+  handleUpdateCollaboratorRole,
+  handleSetCollaboratorGrants,
 } from "@/lib/actions/collaborator";
 import { useRepoHeader } from "@/components/repo/repo-header-context";
 import { Button } from "@/components/ui/button";
@@ -56,9 +58,15 @@ import { requireApiSuccess } from "@/lib/api-client";
 import { toast } from "sonner";
 import { BookText, EllipsisVertical, Loader } from "lucide-react";
 
+type Role = "owner" | "editor" | "author" | "viewer";
+type Grant = { scopeType: "collection" | "file" | "media"; scopeValue: string; permission: "read" | "write" | "publish" | "admin" };
+
 type Collaborator = {
   id: number;
   email: string;
+  role?: Role;
+  branch?: string | null;
+  grants?: Grant[];
 };
 
 type AddCollaboratorState = {
@@ -132,6 +140,30 @@ function InviteCollaboratorsDialog({
             required
             rows={6}
           />
+          <div className="grid grid-cols-2 gap-3">
+            <label className="text-sm space-y-1">
+              <span className="text-muted-foreground">Role</span>
+              <select
+                name="role"
+                defaultValue="editor"
+                className="block w-full border rounded px-2 py-1 text-sm bg-background"
+              >
+                <option value="viewer">Viewer (read only)</option>
+                <option value="author">Author (write own)</option>
+                <option value="editor">Editor (default)</option>
+                <option value="owner">Owner (manage collaborators)</option>
+              </select>
+            </label>
+            <label className="text-sm space-y-1">
+              <span className="text-muted-foreground">Branch (optional)</span>
+              <input
+                name="branch"
+                placeholder="* (all branches)"
+                className="block w-full border rounded px-2 py-1 text-sm bg-background"
+              />
+            </label>
+          </div>
+          <input type="hidden" name="grants" value="[]" />
           {state?.error ? (
             <p className="text-sm font-medium text-destructive">
               {state.error}
@@ -419,8 +451,17 @@ export function Collaborators({
                     {collaborator.email.split("@")[0].substring(0, 2)}
                   </AvatarFallback>
                 </Avatar>
-                <div className="font-medium text-left truncate">
-                  {collaborator.email}
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium text-left truncate">
+                    {collaborator.email}
+                  </div>
+                  <div className="text-xs text-muted-foreground truncate">
+                    {(collaborator.role ?? "editor")}
+                    {collaborator.branch ? ` · branch ${collaborator.branch}` : ""}
+                    {collaborator.grants && collaborator.grants.length > 0
+                      ? ` · ${collaborator.grants.length} grant${collaborator.grants.length === 1 ? "" : "s"}`
+                      : ""}
+                  </div>
                 </div>
 
                 <DropdownMenu>
@@ -452,6 +493,68 @@ export function Collaborators({
                       }
                     >
                       Resend invitation
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    {(["viewer", "author", "editor", "owner"] as Role[]).map((role) => (
+                      <DropdownMenuItem
+                        key={role}
+                        disabled={(collaborator.role ?? "editor") === role}
+                        onClick={async () => {
+                          const result = await handleUpdateCollaboratorRole(
+                            collaborator.id,
+                            owner,
+                            repo,
+                            { role },
+                          );
+                          if (result.error) {
+                            toast.error(result.error);
+                          } else {
+                            toast.success(result.message ?? "Role updated.");
+                            setCollaborators((prev) =>
+                              prev.map((c) =>
+                                c.id === collaborator.id ? { ...c, role } : c,
+                              ),
+                            );
+                          }
+                        }}
+                      >
+                        Set role: {role}
+                      </DropdownMenuItem>
+                    ))}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={async () => {
+                        const raw = window.prompt(
+                          "Enter grants as JSON array, e.g. [{\"scopeType\":\"collection\",\"scopeValue\":\"posts\",\"permission\":\"write\"}]",
+                          JSON.stringify(collaborator.grants ?? [], null, 2),
+                        );
+                        if (raw == null) return;
+                        let parsed: Grant[] = [];
+                        try {
+                          parsed = JSON.parse(raw);
+                        } catch {
+                          toast.error("Invalid JSON.");
+                          return;
+                        }
+                        const result = await handleSetCollaboratorGrants(
+                          collaborator.id,
+                          owner,
+                          repo,
+                          parsed,
+                        );
+                        if (result.error) {
+                          toast.error(result.error);
+                        } else {
+                          toast.success(result.message ?? "Permissions updated.");
+                          setCollaborators((prev) =>
+                            prev.map((c) =>
+                              c.id === collaborator.id ? { ...c, grants: parsed } : c,
+                            ),
+                          );
+                        }
+                      }}
+                    >
+                      Edit grants…
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem

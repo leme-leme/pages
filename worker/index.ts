@@ -10,6 +10,11 @@ interface ExecutionContext {
   passThroughOnException(): void;
 }
 
+interface ScheduledEvent {
+  cron: string;
+  scheduledTime: number;
+}
+
 export default {
   async fetch(
     request: Request,
@@ -37,5 +42,38 @@ export default {
     }
 
     return handler.fetch(request, env, ctx);
+  },
+
+  async scheduled(
+    event: ScheduledEvent,
+    _env: Cloudflare.Env,
+    ctx: ExecutionContext,
+  ): Promise<void> {
+    // Lazy-load to keep cold-start minimal for fetch traffic.
+    const { gcOrphanMedia, pickReconcileTargets, reconcileBucketWithCache } =
+      await import("@/lib/storage/lifecycle");
+
+    if (event.cron === "0 3 * * *") {
+      ctx.waitUntil((async () => {
+        const result = await gcOrphanMedia();
+        console.log("[scheduled] orphan-gc", { deleted: result.deleted.length });
+      })());
+      return;
+    }
+
+    if (event.cron === "*/30 * * * *") {
+      ctx.waitUntil((async () => {
+        const targets = await pickReconcileTargets(5);
+        for (const target of targets) {
+          try {
+            const r = await reconcileBucketWithCache(target.owner, target.repo, target.branch);
+            console.log("[scheduled] reconcile", target, r);
+          } catch (error) {
+            console.warn("[scheduled] reconcile failed", target, error);
+          }
+        }
+      })());
+      return;
+    }
   },
 };

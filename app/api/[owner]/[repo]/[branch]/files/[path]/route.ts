@@ -17,7 +17,8 @@ import { getStorageConfig, s3Key, s3Upload, s3PublicUrl, s3Delete } from "@/lib/
 import { recordUsage } from "@/lib/storage/usage";
 import { recordAuditEvent } from "@/lib/audit";
 import { enforce as enforceRateLimit } from "@/lib/rate-limit";
-import { requirePermission } from "@/lib/authz-server";
+import { requirePermission, resolveRepoAccess } from "@/lib/authz-server";
+import { stripUnwritableFields } from "@/lib/field-permissions";
 import mergeWith from "lodash.mergewith";
 import { buildCommitTokens, resolveCommitIdentity, resolveCommitMessage } from "@/lib/commit-message";
 import { requireApiUserSession } from "@/lib/session-server";
@@ -108,7 +109,20 @@ export async function POST(
               contentObject = data.content;
               contentFields = schema.fields;
             }
-            
+
+            const callerAccess = await resolveRepoAccess(
+              user,
+              params.owner,
+              params.repo,
+              params.branch,
+            );
+            contentObject = stripUnwritableFields(
+              contentObject,
+              contentFields,
+              callerAccess.role,
+              "write",
+            );
+
             // Use mapBlocks to convert config blocks array to a map
             const zodSchema = generateZodSchema(contentFields);
             const zodValidation = zodSchema.safeParse(contentObject);
@@ -587,7 +601,7 @@ export async function DELETE(
       throw createHttpError(`Deleting the settings file isn't allowed.`, 403);
     }
 
-    const searchParams = request.nextUrl.searchParams;
+    const searchParams = new URL(request.url).searchParams;
     const sha = searchParams.get("sha");
     const type = searchParams.get("type");
     const name = searchParams.get("name");

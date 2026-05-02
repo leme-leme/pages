@@ -23,28 +23,34 @@ const recordUsage = async (
   const fileCount = delta.fileCountDelta ?? 0;
   if (!stored && !egressed && !fileCount) return;
 
-  await db.insert(storageUsageTable)
-    .values({
-      owner: lowerOwner,
-      repo: lowerRepo,
-      branch: branchKey,
-      bytesStored: Math.max(0, stored),
-      bytesEgressed: Math.max(0, egressed),
-      fileCount: Math.max(0, fileCount),
-    })
-    .onConflictDoUpdate({
-      target: [
-        sql`lower(${storageUsageTable.owner})`,
-        sql`lower(${storageUsageTable.repo})`,
-        storageUsageTable.branch,
-      ],
-      set: {
-        bytesStored: sql`max(0, ${storageUsageTable.bytesStored} + ${stored})`,
-        bytesEgressed: sql`max(0, ${storageUsageTable.bytesEgressed} + ${egressed})`,
-        fileCount: sql`max(0, ${storageUsageTable.fileCount} + ${fileCount})`,
+  const existing = await db.query.storageUsageTable.findFirst({
+    where: and(
+      sql`lower(${storageUsageTable.owner}) = ${lowerOwner}`,
+      sql`lower(${storageUsageTable.repo}) = ${lowerRepo}`,
+      eq(storageUsageTable.branch, branchKey),
+    ),
+  });
+
+  if (existing) {
+    await db.update(storageUsageTable)
+      .set({
+        bytesStored: Math.max(0, existing.bytesStored + stored),
+        bytesEgressed: Math.max(0, existing.bytesEgressed + egressed),
+        fileCount: Math.max(0, existing.fileCount + fileCount),
         updatedAt: new Date(),
-      },
-    });
+      })
+      .where(eq(storageUsageTable.id, existing.id));
+    return;
+  }
+
+  await db.insert(storageUsageTable).values({
+    owner: lowerOwner,
+    repo: lowerRepo,
+    branch: branchKey,
+    bytesStored: Math.max(0, stored),
+    bytesEgressed: Math.max(0, egressed),
+    fileCount: Math.max(0, fileCount),
+  });
 };
 
 const getUsage = async (owner: string, repo: string, branch?: string) => {
