@@ -15,9 +15,10 @@ function isVideo(path: string): boolean {
 }
 
 function VideoThumbnail({ src, alt }: { src: string; alt: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [duration, setDuration] = useState(0);
-  const [progress, setProgress] = useState(0);
+  const [hoverRatio, setHoverRatio] = useState(0);
   const [isHovering, setIsHovering] = useState(false);
 
   const handleLoadedMetadata = () => {
@@ -27,34 +28,31 @@ function VideoThumbnail({ src, alt }: { src: string; alt: string }) {
     video.currentTime = 0.1;
   };
 
-  const handleTimeUpdate = () => {
+  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const container = containerRef.current;
     const video = videoRef.current;
-    if (!video || !video.duration) return;
-    setProgress(video.currentTime / video.duration);
+    if (!container || !video || !duration) return;
+    const rect = container.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+    setHoverRatio(ratio);
+    video.currentTime = ratio * duration;
   };
 
-  const handleMouseEnter = () => {
-    setIsHovering(true);
-    const video = videoRef.current;
-    if (!video) return;
-    video.currentTime = 0;
-    video.play().catch(() => {});
-  };
-
-  const handleMouseLeave = () => {
+  const handlePointerEnter = () => setIsHovering(true);
+  const handlePointerLeave = () => {
     setIsHovering(false);
+    setHoverRatio(0);
     const video = videoRef.current;
-    if (!video) return;
-    video.pause();
-    video.currentTime = 0.1;
-    setProgress(0);
+    if (video) video.currentTime = 0.1;
   };
 
   return (
     <div
+      ref={containerRef}
       className="absolute inset-0"
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
+      onPointerEnter={handlePointerEnter}
+      onPointerMove={handlePointerMove}
+      onPointerLeave={handlePointerLeave}
     >
       <video
         ref={videoRef}
@@ -62,11 +60,9 @@ function VideoThumbnail({ src, alt }: { src: string; alt: string }) {
         aria-label={alt}
         className="absolute inset-0 w-full h-full object-cover pointer-events-none"
         muted
-        loop
         playsInline
         preload="metadata"
         onLoadedMetadata={handleLoadedMetadata}
-        onTimeUpdate={handleTimeUpdate}
       />
       {duration > 0 && (
         <div
@@ -78,7 +74,7 @@ function VideoThumbnail({ src, alt }: { src: string; alt: string }) {
         >
           <div
             className="h-full bg-white"
-            style={{ width: `${progress * 100}%` }}
+            style={{ width: `${hoverRatio * 100}%` }}
           />
         </div>
       )}

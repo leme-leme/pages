@@ -21,6 +21,7 @@ import { MediaUpload} from "./media-upload";
 import { MediaLightbox } from "./media-lightbox";
 import { Thumbnail } from "@/components/thumbnail";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import {
@@ -49,11 +50,12 @@ import {
   House,
   Ban,
   Check,
-  EllipsisVertical,  
+  EllipsisVertical,
   File,
   Folder,
   FolderPlus,
   Eye,
+  Search,
   Upload
 } from "lucide-react";
 
@@ -62,15 +64,28 @@ function MediaHeaderActions({
   mediaName,
   path,
   onFolderCreate,
+  searchValue,
+  onSearchChange,
 }: {
   actionNode?: ReactNode;
   mediaName: string;
   path: string;
   onFolderCreate: (entry: unknown) => void;
+  searchValue: string;
+  onSearchChange: (value: string) => void;
 }) {
   return (
     <div className="flex items-center gap-x-2 shrink-0">
       {actionNode}
+      <div className="relative hidden sm:block w-52 md:w-64">
+        <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 opacity-50 pointer-events-none" />
+        <Input
+          className="pl-9"
+          value={searchValue}
+          onChange={(e) => onSearchChange(e.target.value)}
+          placeholder="Search media..."
+        />
+      </div>
       <Tooltip>
         <TooltipTrigger asChild>
           <div>
@@ -280,6 +295,7 @@ const MediaView = ({
   const [error, setError] = useState<string | null | undefined>(null);
   const [selected, setSelected] = useState(initialSelected || []);
   const [lightboxPath, setLightboxPath] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
     setSelected(initialSelected || []);
@@ -619,10 +635,12 @@ const MediaView = ({
           mediaName={mediaConfig.name}
           path={path}
           onFolderCreate={handleFolderCreate}
+          searchValue={searchQuery}
+          onSearchChange={setSearchQuery}
         />
       </MediaUpload>
     </div>
-  ), [breadcrumbNode, config.branch, config.owner, config.repo, filteredExtensions, handleFolderCreate, handleUpload, mediaActions, mediaConfig.input, mediaConfig.label, mediaConfig.name, mediaConfig.output, path]);
+  ), [breadcrumbNode, config.branch, config.owner, config.repo, filteredExtensions, handleFolderCreate, handleUpload, mediaActions, mediaConfig.input, mediaConfig.label, mediaConfig.name, mediaConfig.output, path, searchQuery]);
 
   useOptionalRepoHeader(
     { header: headerNode },
@@ -634,7 +652,12 @@ const MediaView = ({
   const gridItems = useMemo(() => {
     if (!filteredData) return [];
 
-    return filteredData.map((item) => {
+    const needle = searchQuery.trim().toLowerCase();
+    const matches = needle
+      ? filteredData.filter((item) => item.name.toLowerCase().includes(needle))
+      : filteredData;
+
+    return matches.map((item) => {
       const ext = item.type === "file" ? (item.extension || "").toLowerCase() : "";
       return {
         item,
@@ -643,7 +666,7 @@ const MediaView = ({
         displaySize: item.type === "file" && typeof item.size === "number" ? getFileSize(item.size) : "",
       };
     });
-  }, [filteredData, imageExtensionsSet, videoExtensionsSet]);
+  }, [filteredData, imageExtensionsSet, videoExtensionsSet, searchQuery]);
 
   const handleGridKeyDown = useCallback((event: React.KeyboardEvent<HTMLUListElement>) => {
     const keys = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "Enter", " "];
@@ -825,6 +848,8 @@ const MediaView = ({
               mediaName={mediaConfig.name}
               path={path}
               onFolderCreate={handleFolderCreate}
+              searchValue={searchQuery}
+              onSearchChange={setSearchQuery}
             />
           </header>
           {mediaGrid}
