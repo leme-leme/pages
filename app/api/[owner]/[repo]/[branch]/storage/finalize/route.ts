@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireApiUserSession } from "@/lib/session-server";
 import { requirePermission } from "@/lib/authz-server";
 import { getStorageConfig, s3Head, s3PublicUrl } from "@/lib/storage/s3";
+import { generateImageVariants, isImage } from "@/lib/storage/image-processing";
 import { recordUsage } from "@/lib/storage/usage";
 import { recordAuditEvent } from "@/lib/audit";
 import { updateFileCache } from "@/lib/github-cache-file";

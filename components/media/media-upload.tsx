@@ -76,19 +76,34 @@ function MediaUploadRoot({ children, path, onUpload, media, extensions, multiple
           rename ?? configMedia?.rename,
         );
 
-        const uploadPromise = (async () => {
-          const content = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => {
-              const base64Content = (reader.result as string).replace(/^(.+,)/, "");
-              resolve(base64Content);
-            };
-            reader.onerror = () => reject(new Error("Failed to read file"));
-            reader.readAsDataURL(file);
-          });
+        const PRESIGN_THRESHOLD = 25 * 1024 * 1024; // skip base64 round-trip past 25 MB
+        const MULTIPART_THRESHOLD = 100 * 1024 * 1024; // resumable past 100 MB
+        const PART_SIZE = 8 * 1024 * 1024;
 
-          const fullPath = joinPathSegments([path ?? "", uploadFilename]);
-          const response = await fetch(`/api/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/files/${encodeURIComponent(fullPath)}`, {
+        const fullPath = joinPathSegments([path ?? "", uploadFilename]);
+        const apiBase = `/api/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}`;
+
+        const uploadPromise = (async (): Promise<FileSaveData> => {
+          if (file.size >= MULTIPART_THRESHOLD) {
+            return uploadMultipart({
+              apiBase,
+              file,
+              fullPath,
+              mediaName: configMedia.name,
+              partSize: PART_SIZE,
+            });
+          }
+          if (file.size >= PRESIGN_THRESHOLD) {
+            return uploadPresigned({
+              apiBase,
+              file,
+              fullPath,
+              mediaName: configMedia.name,
+            });
+          }
+          // Small files: existing JSON+base64 path through GitHub.
+          const content = await readAsBase64(file);
+          const response = await fetch(`${apiBase}/files/${encodeURIComponent(fullPath)}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -98,12 +113,7 @@ function MediaUploadRoot({ children, path, onUpload, media, extensions, multiple
               size: file.size,
             }),
           });
-
-          const data = await requireApiSuccess<any>(
-            response,
-            "Failed to upload file",
-          );
-
+          const data = await requireApiSuccess<any>(response, "Failed to upload file");
           return data.data as FileSaveData;
         })();
 
@@ -263,6 +273,124 @@ function MediaUploadDropZone({ children, className }: MediaUploadDropZoneProps) 
       )}
     </div>
   );
+}
+
+async function readAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve((reader.result as string).replace(/^(.+,)/, ""));
+    reader.onerror = () => reject(new Error("Failed to read file"));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function uploadPresigned({
+  apiBase, file, fullPath, mediaName,
+}: { apiBase: string; file: File; fullPath: string; mediaName: string; }): Promise<FileSaveData> {
+  const presign = await fetch(`${apiBase}/storage/presign`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: mediaName,
+      path: fullPath,
+      contentType: file.type || "application/octet-stream",
+      size: file.size,
+    }),
+  });
+  const presignData = await requireApiSuccess<any>(presign, "Failed to issue presigned URL");
+
+  const put = await fetch(presignData.data.uploadUrl, {
+    method: "PUT",
+    headers: presignData.data.headers ?? { "Content-Type": file.type || "application/octet-stream" },
+    body: file,
+  });
+  if (!put.ok) throw new Error(`Direct S3 upload failed (${put.status})`);
+
+  const finalize = await fetch(`${apiBase}/storage/finalize`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: mediaName,
+      path: fullPath,
+      key: presignData.data.key,
+    }),
+  });
+  const finalizeData = await requireApiSuccess<any>(finalize, "Failed to finalize upload");
+  return finalizeData.data as FileSaveData;
+}
+
+async function uploadMultipart({
+  apiBase, file, fullPath, mediaName, partSize,
+}: { apiBase: string; file: File; fullPath: string; mediaName: string; partSize: number; }): Promise<FileSaveData> {
+  const create = await fetch(`${apiBase}/storage/multipart`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action: "create",
+      name: mediaName,
+      path: fullPath,
+      contentType: file.type || "application/octet-stream",
+      size: file.size,
+    }),
+  });
+  const createData = await requireApiSuccess<any>(create, "Failed to start multipart upload");
+  const { key, uploadId } = createData.data as { key: string; uploadId: string };
+
+  const totalParts = Math.ceil(file.size / partSize);
+  const partNumbers = Array.from({ length: totalParts }, (_, i) => i + 1);
+
+  try {
+    const sign = await fetch(`${apiBase}/storage/multipart`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "sign-parts",
+        name: mediaName,
+        key,
+        uploadId,
+        partNumbers,
+      }),
+    });
+    const signData = await requireApiSuccess<any>(sign, "Failed to sign upload parts");
+    const urls = signData.data.urls as { partNumber: number; url: string }[];
+    const urlMap = new Map(urls.map((u) => [u.partNumber, u.url]));
+
+    const parts: { PartNumber: number; ETag: string }[] = [];
+    for (const partNumber of partNumbers) {
+      const start = (partNumber - 1) * partSize;
+      const end = Math.min(file.size, start + partSize);
+      const chunk = file.slice(start, end);
+      const url = urlMap.get(partNumber);
+      if (!url) throw new Error(`Missing presigned URL for part ${partNumber}`);
+      const partResp = await fetch(url, { method: "PUT", body: chunk });
+      if (!partResp.ok) throw new Error(`Part ${partNumber} upload failed (${partResp.status})`);
+      const etag = partResp.headers.get("ETag") ?? partResp.headers.get("etag");
+      if (!etag) throw new Error(`Part ${partNumber} missing ETag`);
+      parts.push({ PartNumber: partNumber, ETag: etag.replace(/"/g, "") });
+    }
+
+    const complete = await fetch(`${apiBase}/storage/multipart`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "complete", name: mediaName, key, uploadId, parts }),
+    });
+    await requireApiSuccess<any>(complete, "Failed to complete multipart upload");
+
+    const finalize = await fetch(`${apiBase}/storage/finalize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: mediaName, path: fullPath, key }),
+    });
+    const finalizeData = await requireApiSuccess<any>(finalize, "Failed to finalize upload");
+    return finalizeData.data as FileSaveData;
+  } catch (error) {
+    void fetch(`${apiBase}/storage/multipart`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "abort", name: mediaName, key, uploadId }),
+    });
+    throw error;
+  }
 }
 
 export const MediaUpload = Object.assign(MediaUploadRoot, {

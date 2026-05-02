@@ -31,17 +31,6 @@ jobs:
       - name: Build (vinext)
         run: npm run build
 
-      - name: Apply D1 migrations (production)
-        run: |
-          if grep -q '"database_id": *"REPLACE_' wrangler.jsonc; then
-            echo "::warning::wrangler.jsonc has a placeholder database_id; skipping migrations."
-            exit 0
-          fi
-          npx wrangler d1 migrations apply pages-cms-db --remote
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
       - name: Deploy
         run: npx vinext deploy --env production
         env:
