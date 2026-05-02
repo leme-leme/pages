@@ -69,10 +69,7 @@ const getParentPath = (path: string): string => {
 }
 
 const getRelativePath = (path: string, rootPath: string): string => {
-  if (!path.startsWith(rootPath)) {
-    console.error(`Path "${path}" is not within root path "${rootPath}"`);
-    return path;
-  }
+  if (!path.startsWith(rootPath)) return path;
   return !rootPath ? path : path.slice(rootPath.length + 1);
 }
 
