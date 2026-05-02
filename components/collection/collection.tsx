@@ -370,6 +370,54 @@ export function Collection({ name, path }: { name: string; path?: string }) {
     setData((prevData) => prevData?.filter((item: any) => item.path !== path));
   }, []);
 
+  // Table reorder is enabled when the schema declares a numeric sort field
+  // and we're not in tree mode (which has its own expand semantics that
+  // would conflict with row d&d).
+  const tableSortField: string | undefined = schema.view?.default?.sort;
+  const tableReorderable = useMemo(
+    () =>
+      schema.view?.layout !== "tree" &&
+      !!tableSortField &&
+      Array.isArray(schema.fields) &&
+      schema.fields.some((f: any) => f.name === tableSortField),
+    [schema.fields, schema.view?.layout, tableSortField],
+  );
+
+  const handleTableReorder = useCallback(
+    async (orderedPaths: string[]) => {
+      if (!tableSortField) return;
+      const dataByPath = new Map((data ?? []).map((d: any) => [d.path, d]));
+      const updates = orderedPaths
+        .map((p, idx) => {
+          const item = dataByPath.get(p);
+          if (!item || item.type !== "file") return null;
+          return {
+            path: p,
+            content: { ...(item.fields ?? {}), [tableSortField]: idx + 1 },
+          };
+        })
+        .filter((u): u is { path: string; content: Record<string, any> } => u !== null);
+
+      const response = await fetch(
+        `/api/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/files-batch`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name,
+            message: `Reorder ${name} (via Pages CMS)`,
+            updates,
+          }),
+        },
+      );
+      const result = await requireApiSuccess<any>(response, "Reorder failed");
+      toast.success(result.message ?? "Order saved.");
+      // Re-fetch the collection so cached field values reflect the new sort.
+      mutate(buildCollectionApiUrl(path || schema.path));
+    },
+    [buildCollectionApiUrl, config.branch, config.owner, config.repo, data, mutate, name, path, schema.path, tableSortField],
+  );
+
   const handleRename = useCallback((path: string, newPath: string) => {
     setData((prevData: any) => {
       if (!prevData) return prevData;
@@ -1039,6 +1087,8 @@ export function Collection({ name, path }: { name: string; path?: string }) {
       path={path || schema.path}
       isTree={schema.view?.layout === "tree"}
       primaryField={primaryField}
+      reorderable={tableReorderable}
+      onReorder={handleTableReorder}
     />
   );
 

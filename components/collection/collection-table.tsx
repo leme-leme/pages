@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import {
   flexRender,
   getCoreRowModel,
@@ -13,6 +13,24 @@ import {
   ExpandedState,
   Row
 } from "@tanstack/react-table"
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
+import { CSS } from "@dnd-kit/utilities";
 import { Button } from "@/components/ui/button";
 import {
   Pagination,
@@ -32,8 +50,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import Link from "next/link";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { ArrowUp, ArrowDown, Loader, CircleMinus, CirclePlus, Folder, FolderOpen } from "lucide-react";
+import { ArrowUp, ArrowDown, GripVertical, Loader, CircleMinus, CirclePlus, Folder, FolderOpen, Save, Undo2 } from "lucide-react";
 
 declare module '@tanstack/react-table' {
   interface ColumnMeta<TData extends RowData, TValue> {
@@ -52,6 +71,48 @@ export type TableData = {
   parentPath?: string;
   subRows?: TableData[];
   fields?: Record<string, any>;
+}
+
+function SortableTableRow({
+  id,
+  visibleCells,
+  primaryField,
+}: {
+  id: string;
+  visibleCells: any[];
+  primaryField?: string;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 10 : 0,
+  } as const;
+
+  return (
+    <TableRow ref={setNodeRef as any} style={style}>
+      <TableCell className="p-2 border-b py-0 h-12 w-8">
+        <button
+          type="button"
+          className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground"
+          aria-label="Drag to reorder"
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical className="h-4 w-4" />
+        </button>
+      </TableCell>
+      {visibleCells.map((cell: any) => (
+        <TableCell
+          key={cell.id}
+          className={cn("p-2 border-b py-0 h-12", cell.column.columnDef.meta?.className)}
+        >
+          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+        </TableCell>
+      ))}
+    </TableRow>
+  );
 }
 
 const LShapeIcon = ({ className }: { className?: string }) => (
@@ -74,7 +135,9 @@ export function CollectionTable<TData extends TableData>({
   pathname,
   path,
   isTree = false,
-  primaryField
+  primaryField,
+  reorderable = false,
+  onReorder,
 }: {
   columns: any[],
   data: Record<string, any>[],
@@ -85,10 +148,28 @@ export function CollectionTable<TData extends TableData>({
   pathname: string,
   path: string,
   isTree?: boolean,
-  primaryField?: string
+  primaryField?: string,
+  /** When true, render a Reorder toggle that puts the table into a sortable mode. */
+  reorderable?: boolean,
+  /** Called with the new file order (paths) when the user saves. */
+  onReorder?: (orderedPaths: string[]) => Promise<void>,
 }) {
   const [expanded, setExpanded] = useState<ExpandedState>({});
-  
+
+  // Reorder mode (only meaningful when reorderable === true).
+  const initialFilePaths = useMemo(
+    () => data.filter((d) => d.type === "file").map((d) => d.path as string),
+    [data],
+  );
+  const [isReordering, setIsReordering] = useState(false);
+  const [orderPaths, setOrderPaths] = useState<string[]>(initialFilePaths);
+  const [isSavingOrder, setIsSavingOrder] = useState(false);
+
+  // Reset local order when underlying data changes (e.g. after a save).
+  useEffect(() => {
+    setOrderPaths(initialFilePaths);
+  }, [initialFilePaths.join("")]);
+
   const [loadingRows, setLoadingRows] = useState<Record<string, boolean>>({});
   const loadingPathSetRef = useRef<Set<string>>(new Set());
 
@@ -184,8 +265,135 @@ export function CollectionTable<TData extends TableData>({
     });
   }, [isTree, path, handleRowExpansion, table, data]);
 
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const dataByPath = useMemo(() => {
+    const m = new Map<string, Record<string, any>>();
+    for (const item of data) m.set(item.path, item);
+    return m;
+  }, [data]);
+
+  const fileItems = useMemo(
+    () => orderPaths.map((p) => dataByPath.get(p)).filter((x): x is Record<string, any> => Boolean(x)),
+    [orderPaths, dataByPath],
+  );
+  const folderItems = useMemo(() => data.filter((d) => d.type === "dir"), [data]);
+  const isOrderDirty = useMemo(
+    () => orderPaths.some((p, i) => initialFilePaths[i] !== p),
+    [orderPaths, initialFilePaths],
+  );
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setOrderPaths((prev) => {
+      const oldIndex = prev.indexOf(String(active.id));
+      const newIndex = prev.indexOf(String(over.id));
+      if (oldIndex < 0 || newIndex < 0) return prev;
+      return arrayMove(prev, oldIndex, newIndex);
+    });
+  };
+
+  const handleSaveOrder = async () => {
+    if (!onReorder) return;
+    setIsSavingOrder(true);
+    try {
+      await onReorder(orderPaths);
+      setIsReordering(false);
+    } catch (err: any) {
+      toast.error(err?.message ?? "Reorder failed");
+    } finally {
+      setIsSavingOrder(false);
+    }
+  };
+
+  const handleResetOrder = () => setOrderPaths(initialFilePaths);
+
   return (
     <div className="space-y-2">
+      {reorderable && (
+        <div className="flex items-center justify-end gap-2">
+          {isReordering ? (
+            <>
+              {isOrderDirty && (
+                <Button variant="outline" size="sm" onClick={handleResetOrder} disabled={isSavingOrder}>
+                  <Undo2 className="h-3.5 w-3.5" /> Reset
+                </Button>
+              )}
+              <Button size="sm" onClick={handleSaveOrder} disabled={!isOrderDirty || isSavingOrder}>
+                {isSavingOrder ? <Loader className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                {isSavingOrder ? "Saving" : "Save order"}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => { setIsReordering(false); setOrderPaths(initialFilePaths); }}
+                disabled={isSavingOrder}
+              >
+                Cancel
+              </Button>
+            </>
+          ) : (
+            <Button variant="outline" size="sm" onClick={() => setIsReordering(true)}>
+              <GripVertical className="h-3.5 w-3.5" /> Reorder
+            </Button>
+          )}
+        </div>
+      )}
+      {reorderable && isReordering ? (
+        <Table className="border-separate border-spacing-0 text-sm">
+          <TableHeader>
+            {table.getHeaderGroups().map((headerGroup) => (
+              <TableRow key={headerGroup.id} className="sticky -top-4 md:-top-6 z-20 bg-background hover:bg-background">
+                <TableHead className="p-2 h-10 border-b w-8" aria-label="Drag handle column" />
+                {headerGroup.headers.map((header) => (
+                  <TableHead
+                    key={header.id}
+                    className={cn("p-2 h-10 border-b truncate", header.column.columnDef.meta?.className)}
+                  >
+                    {flexRender(header.column.columnDef.header, header.getContext())}
+                  </TableHead>
+                ))}
+              </TableRow>
+            ))}
+          </TableHeader>
+          <TableBody>
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              modifiers={[restrictToVerticalAxis]}
+              onDragEnd={handleDragEnd}
+            >
+              <SortableContext items={fileItems.map((f) => f.path)} strategy={verticalListSortingStrategy}>
+                {folderItems.length > 0 && folderItems.map((row) => (
+                  <TableRow key={`folder-${row.path}`} className="opacity-60">
+                    <TableCell className="p-2 border-b w-8" />
+                    <TableCell colSpan={columns.length} className="p-2 border-b py-0 h-12">
+                      <span className="flex items-center gap-x-2 font-medium">
+                        <Folder className="h-4 w-4" /> {row.name}
+                      </span>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {fileItems.map((row) => {
+                  const tableRow = table.getRowModel().rows.find((r) => r.original.path === row.path);
+                  return (
+                    <SortableTableRow
+                      key={row.path}
+                      id={row.path}
+                      visibleCells={tableRow?.getVisibleCells() ?? []}
+                      primaryField={primaryField}
+                    />
+                  );
+                })}
+              </SortableContext>
+            </DndContext>
+          </TableBody>
+        </Table>
+      ) : (
       <Table className="border-separate border-spacing-0 text-sm">
         <TableHeader>
           {table.getHeaderGroups().map((headerGroup) => (
@@ -322,7 +530,8 @@ export function CollectionTable<TData extends TableData>({
           )}
         </TableBody>
       </Table>
-      {pageCount > 1 && (
+      )}
+      {!isReordering && pageCount > 1 && (
         <footer className="flex items-center justify-end">
           <Pagination className="mx-0 w-auto justify-end">
             <PaginationContent>
