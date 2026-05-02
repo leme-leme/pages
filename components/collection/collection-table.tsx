@@ -50,9 +50,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import Link from "next/link";
-import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { ArrowUp, ArrowDown, GripVertical, Loader, CircleMinus, CirclePlus, Folder, FolderOpen, Save, Undo2 } from "lucide-react";
+import { ArrowUp, ArrowDown, GripVertical, CircleMinus, CirclePlus, Folder, FolderOpen } from "lucide-react";
+import type { ReorderController } from "./use-reorder-controller";
 
 declare module '@tanstack/react-table' {
   interface ColumnMeta<TData extends RowData, TValue> {
@@ -136,8 +136,7 @@ export function CollectionTable<TData extends TableData>({
   path,
   isTree = false,
   primaryField,
-  reorderable = false,
-  onReorder,
+  reorder,
 }: {
   columns: any[],
   data: Record<string, any>[],
@@ -149,22 +148,14 @@ export function CollectionTable<TData extends TableData>({
   path: string,
   isTree?: boolean,
   primaryField?: string,
-  reorderable?: boolean,
-  onReorder?: (orderedPaths: string[]) => Promise<void>,
+  reorder?: ReorderController,
 }) {
   const [expanded, setExpanded] = useState<ExpandedState>({});
 
-  const initialFilePaths = useMemo(
-    () => data.filter((d) => d.type === "file").map((d) => d.path as string),
-    [data],
-  );
-  const [isReordering, setIsReordering] = useState(false);
-  const [orderPaths, setOrderPaths] = useState<string[]>(initialFilePaths);
-  const [isSavingOrder, setIsSavingOrder] = useState(false);
-
-  useEffect(() => {
-    setOrderPaths(initialFilePaths);
-  }, [initialFilePaths.join("")]);
+  const reorderable = !!reorder?.enabled;
+  const isReordering = !!reorder?.isReordering;
+  const orderPaths = reorder?.orderPaths ?? [];
+  const setOrderPaths = reorder?.setOrderPaths ?? (() => {});
 
   const [loadingRows, setLoadingRows] = useState<Record<string, boolean>>({});
   const loadingPathSetRef = useRef<Set<string>>(new Set());
@@ -277,10 +268,6 @@ export function CollectionTable<TData extends TableData>({
     [orderPaths, dataByPath],
   );
   const folderItems = useMemo(() => data.filter((d) => d.type === "dir"), [data]);
-  const isOrderDirty = useMemo(
-    () => orderPaths.some((p, i) => initialFilePaths[i] !== p),
-    [orderPaths, initialFilePaths],
-  );
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
@@ -293,52 +280,8 @@ export function CollectionTable<TData extends TableData>({
     });
   };
 
-  const handleSaveOrder = async () => {
-    if (!onReorder) return;
-    setIsSavingOrder(true);
-    try {
-      await onReorder(orderPaths);
-      setIsReordering(false);
-    } catch (err: any) {
-      toast.error(err?.message ?? "Reorder failed");
-    } finally {
-      setIsSavingOrder(false);
-    }
-  };
-
-  const handleResetOrder = () => setOrderPaths(initialFilePaths);
-
   return (
     <div className="space-y-2">
-      {reorderable && (
-        <div className="flex items-center justify-end gap-2">
-          {isReordering ? (
-            <>
-              {isOrderDirty && (
-                <Button variant="outline" size="sm" onClick={handleResetOrder} disabled={isSavingOrder}>
-                  <Undo2 className="h-3.5 w-3.5" /> Reset
-                </Button>
-              )}
-              <Button size="sm" onClick={handleSaveOrder} disabled={!isOrderDirty || isSavingOrder}>
-                {isSavingOrder ? <Loader className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-                {isSavingOrder ? "Saving" : "Save order"}
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => { setIsReordering(false); setOrderPaths(initialFilePaths); }}
-                disabled={isSavingOrder}
-              >
-                Cancel
-              </Button>
-            </>
-          ) : (
-            <Button variant="outline" size="sm" onClick={() => setIsReordering(true)}>
-              <GripVertical className="h-3.5 w-3.5" /> Reorder
-            </Button>
-          )}
-        </div>
-      )}
       {reorderable && isReordering ? (
         <Table className="border-separate border-spacing-0 text-sm">
           <TableHeader>

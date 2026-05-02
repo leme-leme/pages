@@ -34,6 +34,7 @@ import { EmptyCreate } from "@/components/empty-create";
 import { FileOptions } from "@/components/file/file-options";
 import { CollectionTable } from "./collection-table";
 import { CollectionGallery } from "./collection-gallery";
+import { useReorderController, type ReorderController } from "./use-reorder-controller";
 import { FolderCreate } from "@/components/folder-create";
 import { resolveContentOperations } from "@/lib/operations";
 import { useRepoHeader } from "@/components/repo/repo-header-context";
@@ -77,7 +78,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { EllipsisVertical, FolderPlus, Plus, Search } from "lucide-react";
+import { EllipsisVertical, FolderPlus, GripVertical, Loader, Plus, Save, Search, Undo2 } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
@@ -98,6 +99,7 @@ const CollectionHeaderActions = memo(function CollectionHeaderActions({
   showFolderCreate,
   onFolderCreate,
   onSearchChange,
+  reorder,
 }: {
   addEntryHref: string;
   actionNode?: ReactNode;
@@ -107,6 +109,7 @@ const CollectionHeaderActions = memo(function CollectionHeaderActions({
   showFolderCreate: boolean;
   onFolderCreate: (entry: any) => void;
   onSearchChange: (value: string) => void;
+  reorder?: ReorderController;
 }) {
   const [searchInput, setSearchInput] = useState("");
 
@@ -114,6 +117,25 @@ const CollectionHeaderActions = memo(function CollectionHeaderActions({
     const timeout = setTimeout(() => onSearchChange(searchInput), 200);
     return () => clearTimeout(timeout);
   }, [searchInput, onSearchChange]);
+
+  if (reorder?.isReordering) {
+    return (
+      <div className="flex items-center gap-x-2">
+        {reorder.isDirty && (
+          <Button variant="outline" size="sm" onClick={reorder.reset} disabled={reorder.isSaving}>
+            <Undo2 className="h-3.5 w-3.5" /> Reset
+          </Button>
+        )}
+        <Button size="sm" onClick={reorder.save} disabled={!reorder.isDirty || reorder.isSaving}>
+          {reorder.isSaving ? <Loader className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+          {reorder.isSaving ? "Saving" : "Save order"}
+        </Button>
+        <Button variant="ghost" size="sm" onClick={reorder.cancel} disabled={reorder.isSaving}>
+          Cancel
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="flex items-center gap-x-2">
@@ -127,6 +149,11 @@ const CollectionHeaderActions = memo(function CollectionHeaderActions({
           placeholder="Search entries..."
         />
       </div>
+      {reorder?.enabled && (
+        <Button variant="outline" size="sm" onClick={reorder.start}>
+          <GripVertical className="h-3.5 w-3.5" /> Reorder
+        </Button>
+      )}
       {showFolderCreate && (
         <Tooltip>
           <TooltipTrigger asChild>
@@ -417,6 +444,17 @@ export function Collection({ name, path }: { name: string; path?: string }) {
     },
     [buildCollectionApiUrl, config.branch, config.owner, config.repo, data, mutate, name, path, schema.path, tableSortField],
   );
+
+  const initialFilePaths = useMemo(
+    () => (data ?? []).filter((d: any) => d.type === "file").map((d: any) => d.path as string),
+    [data],
+  );
+
+  const reorderController = useReorderController({
+    enabled: tableReorderable,
+    initialPaths: initialFilePaths,
+    onSave: handleTableReorder,
+  });
 
   const handleRename = useCallback((path: string, newPath: string) => {
     setData((prevData: any) => {
@@ -999,6 +1037,7 @@ export function Collection({ name, path }: { name: string; path?: string }) {
           showFolderCreate={schema.subfolders !== false && canCreate}
           onFolderCreate={handleFolderCreate}
           onSearchChange={handleTableSearchChange}
+          reorder={reorderController}
         />
       </div>
     ),
@@ -1014,6 +1053,7 @@ export function Collection({ name, path }: { name: string; path?: string }) {
       handleTableSearchChange,
       canCreate,
       name,
+      reorderController,
       schema.format,
       schema.label,
       schema.name,
@@ -1074,6 +1114,7 @@ export function Collection({ name, path }: { name: string; path?: string }) {
       canRename={canRename}
       onDelete={handleDelete}
       onRename={handleRename}
+      reorder={reorderController}
     />
   ) : (
     <CollectionTable
@@ -1087,8 +1128,7 @@ export function Collection({ name, path }: { name: string; path?: string }) {
       path={path || schema.path}
       isTree={schema.view?.layout === "tree"}
       primaryField={primaryField}
-      reorderable={tableReorderable}
-      onReorder={handleTableReorder}
+      reorder={reorderController}
     />
   );
 

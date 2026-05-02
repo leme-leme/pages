@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useMemo, type ReactNode } from "react";
 import Link from "next/link";
 import {
   DndContext,
@@ -19,16 +19,15 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical, Loader, Save, Undo2 } from "lucide-react";
+import { GripVertical } from "lucide-react";
 import { Thumbnail } from "@/components/thumbnail";
 import { FileOptions } from "@/components/file/file-options";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { useConfig } from "@/contexts/config-context";
 import { useRepo } from "@/contexts/repo-context";
 import { safeAccess, getFieldByPath } from "@/lib/schema";
-import { requireApiSuccess } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
+import type { ReorderController } from "./use-reorder-controller";
 
 type Item = {
   path: string;
@@ -47,6 +46,7 @@ type CollectionGalleryProps = {
   canRename: boolean;
   onDelete: (path: string) => void;
   onRename: (path: string, newPath: string) => void;
+  reorder?: ReorderController;
 };
 
 const isImageField = (field: any) =>
@@ -205,22 +205,18 @@ export function CollectionGallery({
   canRename,
   onDelete,
   onRename,
+  reorder,
 }: CollectionGalleryProps) {
   const { config } = useConfig();
   const repo = useRepo();
-  const sortField: string | undefined = schema.view?.default?.sort;
-  const hasFrontmatterSort = !!(sortField && schema.fields?.some((f: any) => f.name === sortField));
   const imageFieldName = useMemo(() => {
     if (typeof schema.view?.image === "string") return schema.view.image;
     return findImageFieldName(schema.fields);
   }, [schema]);
 
-  const initialOrder = useMemo(() => data.filter((d) => d.type === "file").map((d) => d.path), [data]);
-  const [order, setOrder] = useState<string[]>(initialOrder);
-  const [isReordering, setIsReordering] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-
-  useMemo(() => setOrder(initialOrder), [initialOrder.join("")]);
+  const isReordering = !!reorder?.isReordering;
+  const order = reorder?.orderPaths ?? [];
+  const setOrder = reorder?.setOrderPaths ?? (() => {});
 
   const itemsByPath = useMemo(() => {
     const map = new Map<string, Item>();
@@ -229,8 +225,9 @@ export function CollectionGallery({
   }, [data]);
 
   const folders = data.filter((d) => d.type === "dir");
-  const orderedFiles = order.map((p) => itemsByPath.get(p)).filter((x): x is Item => Boolean(x));
-  const isDirty = orderedFiles.some((item, idx) => initialOrder[idx] !== item.path);
+  const orderedFiles = isReordering
+    ? order.map((p) => itemsByPath.get(p)).filter((x): x is Item => Boolean(x))
+    : data.filter((d) => d.type === "file");
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -240,7 +237,7 @@ export function CollectionGallery({
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
-    setOrder((prev) => {
+    setOrder((prev: string[]) => {
       const oldIndex = prev.indexOf(String(active.id));
       const newIndex = prev.indexOf(String(over.id));
       if (oldIndex < 0 || newIndex < 0) return prev;
@@ -248,66 +245,8 @@ export function CollectionGallery({
     });
   };
 
-  const handleResetOrder = () => setOrder(initialOrder);
-
-  const handleSaveOrder = async () => {
-    if (!hasFrontmatterSort || !sortField || !config) return;
-    setIsSaving(true);
-    try {
-      const updates = orderedFiles.map((item, idx) => ({
-        path: item.path,
-        content: { ...(item.fields ?? {}), [sortField]: idx + 1 },
-      }));
-
-      const response = await fetch(
-        `/api/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/files-batch`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name,
-            message: `Reorder ${name} (via Pages CMS)`,
-            updates,
-          }),
-        },
-      );
-      const result = await requireApiSuccess<any>(response, "Reorder failed");
-      toast.success(result.message ?? "Order saved.");
-      setIsReordering(false);
-    } catch (err: any) {
-      toast.error(err?.message ?? "Reorder failed");
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
   return (
     <div className="space-y-4">
-      {hasFrontmatterSort && (
-        <div className="flex items-center justify-end gap-2">
-          {isReordering ? (
-            <>
-              {isDirty && (
-                <Button variant="outline" size="sm" onClick={handleResetOrder} disabled={isSaving}>
-                  <Undo2 className="h-3.5 w-3.5" /> Reset
-                </Button>
-              )}
-              <Button size="sm" onClick={handleSaveOrder} disabled={!isDirty || isSaving}>
-                {isSaving ? <Loader className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-                {isSaving ? "Saving" : "Save order"}
-              </Button>
-              <Button variant="ghost" size="sm" onClick={() => { setIsReordering(false); setOrder(initialOrder); }} disabled={isSaving}>
-                Cancel
-              </Button>
-            </>
-          ) : (
-            <Button variant="outline" size="sm" onClick={() => setIsReordering(true)}>
-              <GripVertical className="h-3.5 w-3.5" /> Reorder
-            </Button>
-          )}
-        </div>
-      )}
-
       {folders.length > 0 && (
         <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(10rem, 1fr))" }}>
           {folders.map((item) => (
