@@ -76,9 +76,17 @@ Status legend: ✅ shipped in fork · 🟡 partial · ⬜ not started
 - ✅ **Daily rollups → D1** — `lib/analytics/rollup.ts` `rollupYesterday` queries AE for the previous UTC day and writes per-(owner, repo, type) totals into `analytics_rollup` for >90-day retention. Cron `0 2 * * *` in `worker/index.ts`.
 - ✅ **Privacy controls** — `ANALYTICS_DISABLED=true` env disables every server-side write. The Web Vitals route + reporter both short-circuit on DNT/Sec-GPC. The site-snippet runtime supports `requireConsent` + `honorDnt` flags per project, with a vanilla-JS opt-in banner that stores its decision in `localStorage["pcms.consent"]`.
 
+- ✅ **Sparkline + bar chart components** — `components/charts/sparkline.tsx` (Sparkline, BarChart, DayBars). No chart-lib dep.
+- ✅ **Top contributors / entries / media** — `topActors`, `topResources("collection"|"media")` AE SQL aggregates surfaced as bar charts.
+- ✅ **Realtime view** — `realtimeMinutes` query + `/analytics/realtime` endpoint, polled every 10s in the dashboard.
+- ✅ **Geo + device breakdowns** — `topCountries` + `userAgentBuckets` (multiIf-based bot/mobile/desktop split) using existing `country` and `userAgent` blobs.
+- ✅ **CSV export** — `?format=csv` on `/analytics/dashboard` returns a flat (section, key1, key2, key3, value) CSV.
+- ✅ **Site-side custom event ingest** — `POST /api/[owner]/[repo]/[branch]/analytics/event` accepts `{name, value?, page?, metadata?}` from the deployed site (rate-limited per IP, DNT-aware, requires the project to have an analytics config row). Events stored under index `site.<name>`.
+- ✅ **Build/deploy analytics from `action_run`** — `lib/analytics/deploys.ts` `deployStats` (success rate, mean, p95) + `deploysByDay` rendered as a stacked bar.
+
 ### Future hardening
-- ⬜ Build/deploy analytics — surface Workers/Pages deploy success rate, duration, queue depth alongside `action_run` data.
-- ⬜ Audit-event aggregates — content velocity, stale collections, top-edited paths (built on top of `analytics_rollup`).
+- ⬜ Per-route latency p50/p95/p99 (need to capture `Server-Timing`-style request duration in the worker fetch handler).
+- ⬜ Audit-event aggregates surfaced as content velocity / stale collections (use `analytics_rollup` over a 1-year window).
 - ⬜ Sentry integration for client-side JS errors (server errors already go to AE).
 - ⬜ Replace the inline Web Vitals reporter with the `web-vitals` npm package once we have a use case for INP attribution.
 
@@ -88,4 +96,4 @@ Status legend: ✅ shipped in fork · 🟡 partial · ⬜ not started
 
 1. ✅ **Storage hardening first** — done. Presigned URLs, per-project config, lifecycle GC, reconciliation, signed reads, image variants, usage counters, rate limits, docs.
 2. ✅ **Roles + audit log next** — done. Full role/grant model, branch scoping, delegated invites, audit log, non-GitHub identity, API tokens, permission UI.
-3. ✅ **Analytics last** — done. AE binding wired, audit + storage + errors + Web Vitals all flow into `pages_cms_events`, per-project site-analytics injection covers GA4/Plausible/CF Web Analytics with consent, daily rollups extend retention beyond AE's 90-day window, admin dashboard surfaces it all.
+3. ✅ **Analytics last** — done. AE binding wired, audit + storage + errors + Web Vitals + realtime all flow into `pages_cms_events`. Per-project site-analytics injection covers GA4/Plausible/CF Web Analytics with consent. Daily rollups extend retention beyond AE's 90-day window. Dashboard surfaces top contributors / entries / media / countries / UA buckets / deploy success rate, with CSV export and a public site-event ingest endpoint.
