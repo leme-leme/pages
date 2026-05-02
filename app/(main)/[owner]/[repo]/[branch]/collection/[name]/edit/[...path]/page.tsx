@@ -14,7 +14,7 @@ export default function Page({
     repo: string;
     branch: string;
     name: string;
-    path: string;
+    path: string | string[];
   }>
 }) {
   const resolvedParams = use(params);
@@ -24,7 +24,9 @@ export default function Page({
   const schemaName = decodeURIComponent(resolvedParams.name);
   const schema = useMemo(() => getSchemaByName(config.object, schemaName), [config, schemaName]);
   if (!schema) throw new Error(`Schema not found for ${schemaName}.`);
-  const decodedPath = decodeURIComponent(resolvedParams.path);
+  const decodedPath = Array.isArray(resolvedParams.path)
+    ? resolvedParams.path.map(decodeURIComponent).join("/")
+    : decodeURIComponent(resolvedParams.path);
   const filename = decodedPath.split("/").pop() || decodedPath;
   
   return (

@@ -22,10 +22,16 @@ import { requireApiUserSession } from "@/lib/session-server";
 
 export async function GET(
   request: NextRequest,
-  context: { params: Promise<{ owner: string, repo: string, branch: string, path: string }> }
+  context: { params: Promise<{ owner: string, repo: string, branch: string, path: string | string[] }> }
 ) {
   try {
-    const params = await context.params;
+    const rawParams = await context.params;
+    const params = {
+      ...rawParams,
+      path: Array.isArray(rawParams.path)
+        ? rawParams.path.map(decodeURIComponent).join("/")
+        : decodeURIComponent(rawParams.path),
+    };
     const sessionResult = await requireApiUserSession();
     if ("response" in sessionResult) return sessionResult.response;
     const user = sessionResult.user;
@@ -38,7 +44,7 @@ export async function GET(
     const metaOnly =
       searchParams.get("meta") === "true" ||
       searchParams.get("meta") === "1";
-    
+
     const normalizedPath = normalizePath(params.path);
     if (normalizedPath === ".pages.yml") {
       assertGithubIdentity(user, "Only GitHub users can access settings.");

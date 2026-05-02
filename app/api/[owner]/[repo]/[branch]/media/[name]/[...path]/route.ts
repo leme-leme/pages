@@ -13,10 +13,16 @@ import { createHttpError, toErrorResponse } from "@/lib/api-error";
 
 export async function GET(
   request: Request,
-  context: { params: Promise<{ owner: string, repo: string, branch: string, name: string, path: string }> }
+  context: { params: Promise<{ owner: string, repo: string, branch: string, name: string, path: string | string[] }> }
 ) {
   try {
-    const params = await context.params;
+    const rawParams = await context.params;
+    const params = {
+      ...rawParams,
+      path: Array.isArray(rawParams.path)
+        ? rawParams.path.map(decodeURIComponent).join("/")
+        : decodeURIComponent(rawParams.path),
+    };
     const { token, config } = await getRepoReadContext(params);
     
     const mediaConfig = config.object.media.find((item: any) => item.name === params.name) || config.object.media[0];

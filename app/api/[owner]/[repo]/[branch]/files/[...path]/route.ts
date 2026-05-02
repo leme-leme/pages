@@ -34,10 +34,16 @@ import { requireApiUserSession } from "@/lib/session-server";
 
 export async function POST(
   request: Request,
-  context: { params: Promise<{ owner: string, repo: string, branch: string, path: string }> }
+  context: { params: Promise<{ owner: string, repo: string, branch: string, path: string | string[] }> }
 ) {
   try {
-    const params = await context.params;
+    const rawParams = await context.params;
+    const params = {
+      ...rawParams,
+      path: Array.isArray(rawParams.path)
+        ? rawParams.path.map(decodeURIComponent).join("/")
+        : decodeURIComponent(rawParams.path),
+    };
     const sessionResult = await requireApiUserSession();
     if ("response" in sessionResult) return sessionResult.response;
     const user = sessionResult.user;
@@ -586,7 +592,7 @@ const githubSaveFile = async (
 
 export async function DELETE(
   request: NextRequest,
-  context: { params: Promise<{ owner: string, repo: string, branch: string, path: string }> }
+  context: { params: Promise<{ owner: string, repo: string, branch: string, path: string | string[] }> }
 ) {
   try {
     const params = await context.params;
