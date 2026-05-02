@@ -1,6 +1,12 @@
 import { type NextRequest } from "next/server";
 import { db } from "@/db";
-import { getStorageConfig, s3Get } from "@/lib/storage/s3";
+import { cacheFileTable } from "@/db/schema";
+import { and, eq } from "drizzle-orm";
+import { getStorageConfig, s3Get, s3PresignedGet } from "@/lib/storage/s3";
+import { recordUsage } from "@/lib/storage/usage";
+import { resolveRepoAccess } from "@/lib/authz-server";
+import { hasPermission } from "@/lib/permissions";
+import { getServerSession } from "@/lib/session-server";
 
 export async function GET(
   _request: NextRequest,
@@ -18,15 +24,42 @@ export async function GET(
   const cfg = await getStorageConfig(cached.owner, cached.repo, cached.branch);
   if (!cfg) return new Response("S3 storage is not configured for this project.", { status: 404 });
 
+  // Private buckets: gate by repo permission, then 302 to a presigned URL.
+  if (cfg.visibility === "private") {
+    const session = await getServerSession();
+    if (!session?.user) return new Response("Unauthorized", { status: 401 });
+    const access = await resolveRepoAccess(
+      session.user as any,
+      cached.owner,
+      cached.repo,
+      cached.branch,
+    );
+    if (access.source === "none" || !hasPermission(access, "read", { type: "media" })) {
+      return new Response("Forbidden", { status: 403 });
+    }
+    const url = await s3PresignedGet(cfg, key);
+    void recordUsage(cached.owner, cached.repo, cached.branch, {
+      bytesEgressedDelta: cached.size ?? 0,
+    });
+    return Response.redirect(url, 302);
+  }
+
   const obj = await s3Get(cfg, key);
   if (!obj) return new Response("Not Found", { status: 404 });
+
+  void recordUsage(cached.owner, cached.repo, cached.branch, {
+    bytesEgressedDelta: obj.size,
+  });
+  void db.update(cacheFileTable)
+    .set({ referencedAt: new Date() })
+    .where(and(eq(cacheFileTable.provider, "s3"), eq(cacheFileTable.s3Key, key)));
 
   return new Response(obj.body, {
     status: 200,
     headers: {
       "Content-Type": obj.contentType,
       "Content-Length": String(obj.size),
-      "Cache-Control": cfg.visibility === "public" ? "public, max-age=300" : "private, max-age=60",
+      "Cache-Control": "public, max-age=300",
     },
   });
 }

@@ -68,6 +68,14 @@ export async function POST(
         if (!data.sha && !isContentOperationAllowed("create", { schema })) {
           throw createHttpError(`Creating entries isn't allowed for "${data.name}".`, 403);
         }
+        await requirePermission(
+          user,
+          params.owner,
+          params.repo,
+          "write",
+          { type: "collection", name: data.name },
+          params.branch,
+        );
         schemaCommitTemplates = schema?.commit?.templates;
         schemaCommitIdentity = schema?.commit?.identity;
 
@@ -364,6 +372,23 @@ export async function POST(
           }
         }
       );
+
+      await recordAuditEvent({
+        actor: { userId: user.id, email: user.email, type: "user" },
+        action: data.sha
+          ? `${data.type}.update`
+          : `${data.type}.create`,
+        resourceType: data.type,
+        resourceId: response.data.content.path ?? normalizedPath,
+        owner: params.owner,
+        repo: params.repo,
+        branch: params.branch,
+        after: {
+          sha: response.data.content.sha,
+          name: data.name,
+          commitSha: response.data.commit.sha,
+        },
+      });
     }
 
     return Response.json({
@@ -582,6 +607,15 @@ export async function DELETE(
           ),
       });
       if (cached?.provider === "s3" && cached.s3Key) {
+        await requirePermission(
+          user,
+          params.owner,
+          params.repo,
+          "write",
+          { type: "media", name: name ?? "*" },
+          params.branch,
+        );
+        await enforceRateLimit(`${user.id}:${params.owner}/${params.repo}`, "delete", 1);
         const storageCfg = await getStorageConfig(params.owner, params.repo, params.branch);
         if (!storageCfg) throw new Error("S3 storage is no longer configured for this project.");
         await s3Delete(storageCfg, cached.s3Key);
@@ -590,6 +624,20 @@ export async function DELETE(
           params.owner, params.repo, params.branch,
           { type: "delete", path: normalizePath(params.path) } as any,
         );
+        await recordUsage(params.owner, params.repo, params.branch, {
+          bytesStoredDelta: -(cached.size ?? 0),
+          fileCountDelta: -1,
+        });
+        await recordAuditEvent({
+          actor: { userId: user.id, email: user.email, type: "user" },
+          action: "media.delete",
+          resourceType: "media",
+          resourceId: normalizePath(params.path),
+          owner: params.owner,
+          repo: params.repo,
+          branch: params.branch,
+          before: { provider: "s3", key: cached.s3Key, size: cached.size },
+        });
         return Response.json({
           status: "success",
           message: `File "${normalizePath(params.path)}" deleted from S3.`,
@@ -644,6 +692,15 @@ export async function DELETE(
         ) throw new Error(`Invalid extension "${getFileExtension(normalizedPath)}" for media.`);
         break;
     }
+
+    await requirePermission(
+      user,
+      params.owner,
+      params.repo,
+      "write",
+      { type: type === "media" ? "media" : "collection", name: name ?? undefined },
+      params.branch,
+    );
 
     const commitIdentity = resolveCommitIdentity({
       configObject: config.object,
@@ -704,6 +761,18 @@ export async function DELETE(
           : undefined,
       }
     );
+
+    await recordAuditEvent({
+      actor: { userId: user.id, email: user.email, type: "user" },
+      action: `${type}.delete`,
+      resourceType: type,
+      resourceId: normalizedPath,
+      owner: params.owner,
+      repo: params.repo,
+      branch: params.branch,
+      before: { sha, name },
+      metadata: { commitSha: response?.data.commit?.sha },
+    });
 
     return Response.json({
       status: "success",

@@ -20,7 +20,7 @@
     {
       "binding": "DB",
       "database_name": "pages-cms-db",
-      "database_id": "REPLACE_WITH_PROD_D1_ID",
+      "database_id": "99d863d1-a0e4-4821-8368-b4371342a0bd",
       "migrations_dir": "db/migrations"
     }
   ]
