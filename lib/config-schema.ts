@@ -590,6 +590,9 @@ const ContentLeafSchema = z
       }),
     operations: ContentOperationsSchema.optional(),
     filename: FilenameConfigSchema.optional().nullable(),
+    i18n: z
+      .boolean({ message: "'i18n' must be a boolean." })
+      .optional(),
     exclude: z
       .array(
         z.string({
@@ -604,10 +607,13 @@ const ContentLeafSchema = z
       .object(
         {
           layout: z
-            .enum(["tree", "list"], {
-              message: "'layout' must be either 'tree' or 'list'.",
+            .enum(["tree", "list", "gallery"], {
+              message: "'layout' must be 'tree', 'list', or 'gallery'.",
             })
             .optional(),
+          image: z.string({
+            message: "'view.image' must be a string (the field name to use as the gallery thumbnail).",
+          }).optional(),
           node: z
             .union(
               [
@@ -898,6 +904,19 @@ const ConfigSchema = z
         }),
       ])
       .optional(),
+    i18n: z
+      .object({
+        structure: z.enum(["multiple_files", "multiple_folders", "single_file"], {
+          message: "'i18n.structure' must be 'multiple_files', 'multiple_folders', or 'single_file'.",
+        }),
+        locales: z.array(z.string({ message: "Each locale must be a string." }), {
+          message: "'i18n.locales' must be an array of locale strings.",
+        }).min(1, { message: "'i18n.locales' must contain at least one locale." }),
+        default_locale: z.string({ message: "'i18n.default_locale' must be a string." }),
+      })
+      .strict()
+      .optional()
+      .nullable(),
   })
   .strict()
   .superRefine((data, ctx) => {
