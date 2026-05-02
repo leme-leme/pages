@@ -6,7 +6,7 @@ import { ButtonGroup } from "@/components/ui/button-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { MediaUpload } from "@/components/media/media-upload";
 import { MediaDialog } from "@/components/media/media-dialog";
-import { Upload, FolderOpen, ArrowUpRight, Trash2 } from "lucide-react";
+import { Upload, FolderOpen, ArrowUpRight, Images, Trash2 } from "lucide-react";
 import { useConfig } from "@/contexts/config-context";
 import { normalizeMediaPath, normalizePath } from "@/lib/utils/file";
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
@@ -48,11 +48,14 @@ type FieldOptions = {
   rename?: boolean | "safe" | "random";
 };
 
-const ImageTeaser = ({ file, config, mediaConfig, onRemove }: {
+const ImageTeaser = ({ file, config, mediaConfig, rootPath, allowedExtensions, onRemove, onReplace }: {
   file: string;
   config: Pick<Config, "owner" | "repo" | "branch"> & { object?: any };
   mediaConfig?: { name?: string; input?: string; output?: string };
+  rootPath?: string;
+  allowedExtensions?: string[];
   onRemove?: () => void;
+  onReplace?: (newPath: string) => void;
 }) => {
   // Convert stored output path (e.g. /media/foo.jpg) to repo input path
   // (e.g. static/media/foo.jpg) so GitHub blob links resolve correctly.
@@ -79,6 +82,30 @@ const ImageTeaser = ({ file, config, mediaConfig, onRemove }: {
           </TooltipTrigger>
           <TooltipContent>View on GitHub</TooltipContent>
         </Tooltip>
+        {onReplace && mediaConfig?.name && (
+          <MediaDialog
+            media={mediaConfig.name}
+            initialPath={rootPath ?? mediaConfig.input}
+            maxSelected={1}
+            extensions={allowedExtensions}
+            onSubmit={(newPaths) => { if (newPaths[0]) onReplace(newPaths[0]); }}
+          >
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  className="text-muted-foreground hover:text-foreground"
+                  aria-label="Replace from media library"
+                >
+                  <Images />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Replace from media</TooltipContent>
+            </Tooltip>
+          </MediaDialog>
+        )}
         {onRemove && (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -328,7 +355,15 @@ const EditComponent = forwardRef((props: EditorProps, ref: React.Ref<HTMLInputEl
                 <div title={files[0].path}>
                   <Thumbnail name={mediaConfig.name} path={files[0].path} className="rounded-md w-28 h-28"/>
                 </div>
-                <ImageTeaser file={files[0].path} config={config} mediaConfig={mediaConfig} onRemove={isReadonly ? undefined : () => handleRemove(files[0].id)} />
+                <ImageTeaser
+                  file={files[0].path}
+                  config={config}
+                  mediaConfig={mediaConfig}
+                  rootPath={rootPath}
+                  allowedExtensions={allowedExtensions}
+                  onRemove={isReadonly ? undefined : () => handleRemove(files[0].id)}
+                  onReplace={isReadonly ? undefined : (newPath) => setFiles([{ id: generateId(), path: normalizeMediaPath(newPath) }])}
+                />
               </div>
             )
           )}
