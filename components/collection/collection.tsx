@@ -33,6 +33,7 @@ import { requireApiSuccess } from "@/lib/api-client";
 import { EmptyCreate } from "@/components/empty-create";
 import { FileOptions } from "@/components/file/file-options";
 import { CollectionTable } from "./collection-table";
+import { CollectionGallery } from "./collection-gallery";
 import { FolderCreate } from "@/components/folder-create";
 import { resolveContentOperations } from "@/lib/operations";
 import { useRepoHeader } from "@/components/repo/repo-header-context";
@@ -1015,6 +1016,17 @@ export function Collection({ name, path }: { name: string; path?: string }) {
         </EmptyContent>
       </Empty>
     </div>
+  ) : schema.view?.layout === "gallery" ? (
+    <CollectionGallery
+      data={data as any}
+      schema={schema}
+      name={name}
+      primaryField={primaryField}
+      canDelete={canDelete}
+      canRename={canRename}
+      onDelete={handleDelete}
+      onRename={handleRename}
+    />
   ) : (
     <CollectionTable
       columns={columns}
