@@ -103,14 +103,16 @@ function SortableTableRow({
           <GripVertical className="h-4 w-4" />
         </button>
       </TableCell>
-      {visibleCells.map((cell: any) => (
-        <TableCell
-          key={cell.id}
-          className={cn("p-2 border-b py-0 h-12", cell.column.columnDef.meta?.className)}
-        >
-          {flexRender(cell.column.columnDef.cell, cell.getContext())}
-        </TableCell>
-      ))}
+      {visibleCells
+        .filter((cell: any) => cell.column.id !== "actions")
+        .map((cell: any) => (
+          <TableCell
+            key={cell.id}
+            className={cn("p-2 border-b py-0 h-12", cell.column.columnDef.meta?.className)}
+          >
+            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+          </TableCell>
+        ))}
     </TableRow>
   );
 }
@@ -288,14 +290,16 @@ export function CollectionTable<TData extends TableData>({
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id} className="sticky -top-4 md:-top-6 z-20 bg-background hover:bg-background">
                 <TableHead className="p-2 h-10 border-b w-8" aria-label="Drag handle column" />
-                {headerGroup.headers.map((header) => (
-                  <TableHead
-                    key={header.id}
-                    className={cn("p-2 h-10 border-b truncate", header.column.columnDef.meta?.className)}
-                  >
-                    {flexRender(header.column.columnDef.header, header.getContext())}
-                  </TableHead>
-                ))}
+                {headerGroup.headers
+                  .filter((header) => header.column.id !== "actions")
+                  .map((header) => (
+                    <TableHead
+                      key={header.id}
+                      className={cn("p-2 h-10 border-b truncate", header.column.columnDef.meta?.className)}
+                    >
+                      {flexRender(header.column.columnDef.header, header.getContext())}
+                    </TableHead>
+                  ))}
               </TableRow>
             ))}
           </TableHeader>
@@ -310,7 +314,7 @@ export function CollectionTable<TData extends TableData>({
                 {folderItems.length > 0 && folderItems.map((row) => (
                   <TableRow key={`folder-${row.path}`} className="opacity-60">
                     <TableCell className="p-2 border-b w-8" />
-                    <TableCell colSpan={columns.length} className="p-2 border-b py-0 h-12">
+                    <TableCell colSpan={Math.max(columns.length - 1, 1)} className="p-2 border-b py-0 h-12">
                       <span className="flex items-center gap-x-2 font-medium">
                         <Folder className="h-4 w-4" /> {row.name}
                       </span>
