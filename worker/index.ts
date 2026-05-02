@@ -41,7 +41,20 @@ export default {
       );
     }
 
-    return handler.fetch(request, env, ctx);
+    try {
+      return await handler.fetch(request, env, ctx);
+    } catch (err: any) {
+      console.error("[worker] handler.fetch threw", {
+        url: request.url,
+        method: request.method,
+        name: err?.name,
+        message: err?.message,
+        stack: err?.stack,
+        cause: err?.cause?.message,
+        causeStack: err?.cause?.stack,
+      });
+      throw err;
+    }
   },
 
   async scheduled(
