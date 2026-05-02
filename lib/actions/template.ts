@@ -1,8 +1,8 @@
 "use server";
 
 import { createOctokitInstance } from "@/lib/utils/octokit";
-import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
+import { materializeHeaders } from "@/lib/session-server";
 import { getInstallations } from "@/lib/github-app";
 import { requireGithubUserToken } from "@/lib/authz-server";
 import templates from "@/lib/templates";
@@ -12,7 +12,7 @@ import { z } from "zod";
 const handleCopyTemplate = async (prevState: any, formData: FormData) => {
   try {
 		const session = await auth.api.getSession({
-      headers: await headers(),
+      headers: await materializeHeaders(),
     });
     const user = session?.user;
 		if (!user) throw new Error("You must be signed in with GitHub to copy a template.");

@@ -1,7 +1,7 @@
 "use server";
 
-import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
+import { materializeHeaders } from "@/lib/session-server";
 import { getInstallationRepos, getInstallations } from "@/lib/github-app";
 import { requireGithubRepoWriteAccess, resolveRepoAccess } from "@/lib/authz-server";
 import { canManageCollaborators, type Role } from "@/lib/permissions";
@@ -179,7 +179,7 @@ const createCollaboratorInviteMagicLink = async ({
 
 const handleAddCollaborator = async (prevState: any, formData: FormData) => {
   try {
-    const session = await auth.api.getSession({ headers: await headers() });
+    const session = await auth.api.getSession({ headers: await materializeHeaders() });
     const user = session?.user;
     if (!user) throw new Error("You must be signed in to invite collaborators.");
 
@@ -344,7 +344,7 @@ const handleAddCollaborator = async (prevState: any, formData: FormData) => {
 
 const handleRemoveCollaborator = async (collaboratorId: number, owner: string, repo: string) => {
   try {
-    const session = await auth.api.getSession({ headers: await headers() });
+    const session = await auth.api.getSession({ headers: await materializeHeaders() });
     const user = session?.user;
     if (!user) throw new Error("You must be signed in to manage collaborators.");
 
@@ -392,7 +392,7 @@ const handleRemoveCollaborator = async (collaboratorId: number, owner: string, r
 
 const handleResendCollaboratorInvite = async (collaboratorId: number, owner: string, repo: string) => {
   try {
-    const session = await auth.api.getSession({ headers: await headers() });
+    const session = await auth.api.getSession({ headers: await materializeHeaders() });
     const user = session?.user;
     if (!user) throw new Error("You must be signed in to resend collaborator invites.");
 
@@ -453,7 +453,7 @@ const handleUpdateCollaboratorRole = async (
   payload: { role: Role; branch?: string | null },
 ) => {
   try {
-    const session = await auth.api.getSession({ headers: await headers() });
+    const session = await auth.api.getSession({ headers: await materializeHeaders() });
     const user = session?.user;
     if (!user) throw new Error("You must be signed in to manage collaborators.");
 
@@ -508,7 +508,7 @@ const handleSetCollaboratorGrants = async (
   grants: unknown,
 ) => {
   try {
-    const session = await auth.api.getSession({ headers: await headers() });
+    const session = await auth.api.getSession({ headers: await materializeHeaders() });
     const user = session?.user;
     if (!user) throw new Error("You must be signed in to manage collaborators.");
 
