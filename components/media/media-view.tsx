@@ -122,6 +122,7 @@ type MediaFileTileProps = {
   selectable: boolean;
   isSelected: boolean;
   isImage: boolean;
+  isVideo: boolean;
   displaySize: string;
   portalContainer: HTMLDivElement | null;
   onSelect: (path: string) => void;
@@ -136,6 +137,7 @@ const MediaFileTile = memo(function MediaFileTile({
   selectable,
   isSelected,
   isImage,
+  isVideo,
   displaySize,
   portalContainer,
   onSelect,
@@ -143,12 +145,13 @@ const MediaFileTile = memo(function MediaFileTile({
   onRename,
   onPreview,
 }: MediaFileTileProps) {
+  const showThumbnail = isImage || isVideo;
   const content = (
     <div className={cn(
       "relative rounded-md group",
       selectable && "hover:bg-muted peer-focus:ring-offset-background peer-focus:ring-2 peer-focus:ring-ring peer-focus:ring-offset-2 peer-checked:ring-offset-background peer-checked:ring-offset-2 peer-checked:ring-2 peer-checked:ring-ring",
     )}>
-      {isImage
+      {showThumbnail
         ? (
           <div className="relative">
             <Thumbnail name={mediaName} path={item.path} className="rounded-t-md aspect-video"/>
@@ -264,6 +267,11 @@ const MediaView = ({
 
   const imageExtensionsSet = useMemo(
     () => new Set(extensionCategories.image),
+    [],
+  );
+
+  const videoExtensionsSet = useMemo(
+    () => new Set(extensionCategories.video),
     [],
   );
 
@@ -626,12 +634,16 @@ const MediaView = ({
   const gridItems = useMemo(() => {
     if (!filteredData) return [];
 
-    return filteredData.map((item) => ({
-      item,
-      isImage: item.type === "file" && imageExtensionsSet.has((item.extension || "").toLowerCase()),
-      displaySize: item.type === "file" && typeof item.size === "number" ? getFileSize(item.size) : "",
-    }));
-  }, [filteredData, imageExtensionsSet]);
+    return filteredData.map((item) => {
+      const ext = item.type === "file" ? (item.extension || "").toLowerCase() : "";
+      return {
+        item,
+        isImage: item.type === "file" && imageExtensionsSet.has(ext),
+        isVideo: item.type === "file" && videoExtensionsSet.has(ext),
+        displaySize: item.type === "file" && typeof item.size === "number" ? getFileSize(item.size) : "",
+      };
+    });
+  }, [filteredData, imageExtensionsSet, videoExtensionsSet]);
 
   const handleGridKeyDown = useCallback((event: React.KeyboardEvent<HTMLUListElement>) => {
     const keys = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "Enter", " "];
@@ -650,7 +662,7 @@ const MediaView = ({
       event.preventDefault();
       if (item.item.type === "dir") {
         handleNavigate(item.item.path);
-      } else if (item.isImage) {
+      } else if (item.isImage || item.isVideo) {
         setLightboxPath(item.item.path);
       }
       return;
@@ -735,7 +747,7 @@ const MediaView = ({
                 onKeyDown={handleGridKeyDown}
                 tabIndex={-1}
               >
-                {gridItems.map(({ item, isImage, displaySize }, index) =>
+                {gridItems.map(({ item, isImage, isVideo, displaySize }, index) =>
                   <li
                     key={item.path}
                     data-grid-index={index}
@@ -750,12 +762,13 @@ const MediaView = ({
                           selectable={!!onSelect}
                           isSelected={selectedPaths.has(item.path)}
                           isImage={isImage}
+                          isVideo={isVideo}
                           displaySize={displaySize}
                           portalContainer={filesGridRef.current}
                           onSelect={handleSelect}
                           onDelete={handleDelete}
                           onRename={handleRename}
-                          onPreview={isImage ? setLightboxPath : undefined}
+                          onPreview={isImage || isVideo ? setLightboxPath : undefined}
                         />
                     }
                   </li>
