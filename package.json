@@ -14,7 +14,6 @@
     "dev:next": "next dev",
     "build": "vinext build",
     "build:next": "next build",
-    "postbuild": "npm run db:migrate",
     "start": "vinext start",
     "start:next": "next start",
     "deploy": "vinext deploy --env production",
