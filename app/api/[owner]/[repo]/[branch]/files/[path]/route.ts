@@ -101,9 +101,10 @@ export async function POST(
             const zodValidation = zodSchema.safeParse(contentObject);
             
             if (zodValidation.success === false ) {
-              const errorMessages = zodValidation.error.errors.map((error: any) => {
-                let message = error.message;
-                if (error.path.length > 0) message = `${message} at ${error.path.join(".")}`;
+              // Zod 4: ZodError exposes `.issues`, not `.errors`.
+              const errorMessages = zodValidation.error.issues.map((issue) => {
+                let message = issue.message;
+                if (issue.path.length > 0) message = `${message} at ${issue.path.join(".")}`;
                 return message;
               });
               throw new Error(`Content validation failed: ${errorMessages.join(", ")}`);

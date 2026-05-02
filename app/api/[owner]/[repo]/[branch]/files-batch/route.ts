@@ -64,7 +64,8 @@ export async function POST(
       const zodSchema = generateZodSchema(contentFields, false, config.object);
       const zodValidation = zodSchema.safeParse(contentObject);
       if (!zodValidation.success) {
-        const errs = zodValidation.error.errors.map((e: any) =>
+        // Zod 4: ZodError exposes `.issues`, not `.errors`.
+        const errs = zodValidation.error.issues.map((e) =>
           `${e.message}${e.path.length ? ` at ${e.path.join(".")}` : ""}`,
         );
         throw new Error(`Validation failed for ${normalizedPath}: ${errs.join(", ")}`);
