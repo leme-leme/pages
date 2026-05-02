@@ -811,16 +811,15 @@ const MediaView = ({
     [gridItems],
   );
 
-  const lightboxNode = (
+  const lightboxNode = lightboxPath !== null ? (
     <MediaLightbox
-      open={lightboxPath !== null}
-      onOpenChange={(open) => { if (!open) setLightboxPath(null); }}
       name={mediaConfig.name}
       path={lightboxPath}
       items={previewableItems}
+      onClose={() => setLightboxPath(null)}
       onPathChange={setLightboxPath}
     />
-  );
+  ) : null;
 
   if (!usePageHeader) {
     return (
@@ -857,8 +856,7 @@ const MediaView = ({
               onSearchChange={setSearchQuery}
             />
           </header>
-          {mediaGrid}
-          {lightboxNode}
+          {lightboxNode ?? mediaGrid}
         </div>
       </MediaUpload>
     );
@@ -867,9 +865,8 @@ const MediaView = ({
   return (
     <div className="flex-1 flex flex-col space-y-4">
       <MediaUpload media={mediaConfig.name} path={path} onUpload={handleUpload} extensions={filteredExtensions}>
-        {mediaGrid}
+        {lightboxNode ?? mediaGrid}
       </MediaUpload>
-      {lightboxNode}
     </div>
   );
 };
