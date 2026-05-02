@@ -93,10 +93,6 @@ GC, S3 ↔ D1 reconciliation, image variants, signed reads, usage accounting.
 - `components/media/media-lightbox.tsx`, `components/thumbnail.tsx` — image
   lightbox + video thumbnails (`c2190ca`, `5c735b2`).
 
-### Docs
-- `docs/storage-setup.md` — R2 + S3 IAM policies, CORS JSON
-  (`ExposeHeaders: [ETag]` for multipart), lifecycle/cron docs.
-
 ---
 
 ## Permissions & auth — RBAC
