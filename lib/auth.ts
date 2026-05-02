@@ -1,6 +1,5 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { nextCookies } from "better-auth/next-js";
 import { magicLink } from "better-auth/plugins";
 import { db } from "@/db";
 import * as schema from "@/db/schema";
@@ -11,6 +10,8 @@ import { syncGithubProfileOnLogin } from "@/lib/github-account";
 import { bindCollaboratorInvitesToUser } from "@/lib/collaborator-access";
 import { LoginEmailTemplate } from "@/components/email/login";
 import { render } from "@react-email/render";
+
+const emailPasswordEnabled = process.env.AUTH_EMAIL_PASSWORD_ENABLED !== "false";
 
 export const auth = betterAuth({
   baseURL: getBaseUrl(),
@@ -27,11 +28,16 @@ export const auth = betterAuth({
   account: {
     accountLinking: {
       enabled: true,
-      trustedProviders: ["github"],
+      trustedProviders: ["github", "credential"],
       disableImplicitLinking: false,
       updateUserInfoOnLink: true,
       allowUnlinkingAll: false,
     },
+  },
+  emailAndPassword: {
+    enabled: emailPasswordEnabled,
+    autoSignIn: true,
+    requireEmailVerification: false,
   },
   socialProviders: {
     github: {
@@ -154,7 +160,6 @@ export const auth = betterAuth({
     },
   },
   plugins: [
-    nextCookies(),
     magicLink({
       sendMagicLink: async ({ email, url }) => {
         const html = await render(
