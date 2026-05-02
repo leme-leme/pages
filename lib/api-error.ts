@@ -1,3 +1,5 @@
+import { writeEvent } from "@/lib/analytics/collect";
+
 type ErrorLike = {
   status?: number;
   statusCode?: number;
@@ -50,8 +52,32 @@ const getErrorStatus = (error: unknown): number => {
   return 500;
 };
 
-const toErrorResponse = (error: unknown) => {
+type ErrorContext = {
+  route?: string;
+  owner?: string | null;
+  repo?: string | null;
+  branch?: string | null;
+  actor?: { userId?: string | null; email?: string | null; type?: "user" | "api_token" | "system" };
+};
+
+const toErrorResponse = (error: unknown, context?: ErrorContext) => {
   const status = getErrorStatus(error);
+  // 4xx user errors are noisy and not actionable; only mirror 5xx server faults.
+  if (status >= 500) {
+    try {
+      writeEvent({
+        type: "cms.error",
+        owner: context?.owner ?? null,
+        repo: context?.repo ?? null,
+        branch: context?.branch ?? null,
+        actor: context?.actor,
+        status: String(status),
+        route: context?.route,
+        errorMessage: getErrorMessage(error),
+        resourceType: "error",
+      });
+    } catch {}
+  }
   return Response.json(
     {
       status: "error",
@@ -62,3 +88,4 @@ const toErrorResponse = (error: unknown) => {
 };
 
 export { createHttpError, toErrorResponse };
+export type { ErrorContext };

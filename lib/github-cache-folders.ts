@@ -134,27 +134,18 @@ const invalidateFolderScopes = async (
 };
 
 const withFolderCacheLock = async <T>(
-  owner: string,
-  repo: string,
-  branch: string,
-  scope: CacheScope,
+  _owner: string,
+  _repo: string,
+  _branch: string,
+  _scope: CacheScope,
   callback: (tx: any) => Promise<T>,
 ): Promise<{ acquired: boolean; value?: T }> => {
-  const primary = `${owner.toLowerCase()}::${repo.toLowerCase()}::${branch}`;
-  const secondary = `${scope.context}::${scope.path}`;
-
-  return db.transaction(async (tx) => {
-    const result = await tx.execute(sql`
-      select pg_try_advisory_xact_lock(hashtext(${primary}), hashtext(${secondary})) as locked
-    `);
-    const locked = Boolean((result as any)?.[0]?.locked);
-    if (!locked) return { acquired: false };
-
-    return {
-      acquired: true,
-      value: await callback(tx),
-    };
-  });
+  // D1 has no transactions and no advisory locks. Race protection is
+  // delegated to per-row claim flags via tryClaimCacheFileMeta upstream.
+  return {
+    acquired: true,
+    value: await callback(db),
+  };
 };
 
 const markFolderScopeError = async (
@@ -308,7 +299,12 @@ const replaceFolderCache = async (
     );
 
     if (entries.length > 0) {
-      await tx.insert(cacheFileTable).values(entries);
+      // D1 caps bound parameters per query at ~100. cache_file rows have
+      // ~17 placeholders each, so 5 rows per chunk keeps us well under.
+      const CHUNK = 5;
+      for (let i = 0; i < entries.length; i += CHUNK) {
+        await tx.insert(cacheFileTable).values(entries.slice(i, i + CHUNK));
+      }
 
       await tx.insert(cacheFileMetaTable).values({
         owner: lowerOwner,

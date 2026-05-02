@@ -3,7 +3,16 @@ declare namespace Cloudflare {
     ASSETS: Fetcher;
     IMAGES: ImagesBinding;
     DB: D1Database;
+    AE?: AnalyticsEngineDataset;
   }
+}
+
+interface AnalyticsEngineDataset {
+  writeDataPoint(event: {
+    indexes?: string[];
+    blobs?: (string | undefined | null)[];
+    doubles?: (number | undefined | null)[];
+  }): void;
 }
 
 interface ImagesBinding {

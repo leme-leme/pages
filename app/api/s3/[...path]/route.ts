@@ -7,6 +7,7 @@ import { recordUsage } from "@/lib/storage/usage";
 import { resolveRepoAccess } from "@/lib/authz-server";
 import { hasPermission } from "@/lib/permissions";
 import { getServerSession } from "@/lib/session-server";
+import { writeEvent } from "@/lib/analytics/collect";
 
 export async function GET(
   _request: NextRequest,
@@ -41,6 +42,13 @@ export async function GET(
     void recordUsage(cached.owner, cached.repo, cached.branch, {
       bytesEgressedDelta: cached.size ?? 0,
     });
+    writeEvent({
+      type: "cms.media.egress",
+      owner: cached.owner, repo: cached.repo, branch: cached.branch,
+      resourceType: "media", resourceId: key,
+      bytes: cached.size ?? 0,
+      status: "private",
+    });
     return Response.redirect(url, 302);
   }
 
@@ -49,6 +57,13 @@ export async function GET(
 
   void recordUsage(cached.owner, cached.repo, cached.branch, {
     bytesEgressedDelta: obj.size,
+  });
+  writeEvent({
+    type: "cms.media.egress",
+    owner: cached.owner, repo: cached.repo, branch: cached.branch,
+    resourceType: "media", resourceId: key,
+    bytes: obj.size,
+    status: "public",
   });
   void db.update(cacheFileTable)
     .set({ referencedAt: new Date() })

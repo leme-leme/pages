@@ -49,12 +49,9 @@ export default {
     _env: Cloudflare.Env,
     ctx: ExecutionContext,
   ): Promise<void> {
-    // Lazy-load to keep cold-start minimal for fetch traffic.
-    const { gcOrphanMedia, pickReconcileTargets, reconcileBucketWithCache } =
-      await import("@/lib/storage/lifecycle");
-
     if (event.cron === "0 3 * * *") {
       ctx.waitUntil((async () => {
+        const { gcOrphanMedia } = await import("@/lib/storage/lifecycle");
         const result = await gcOrphanMedia();
         console.log("[scheduled] orphan-gc", { deleted: result.deleted.length });
       })());
@@ -63,6 +60,8 @@ export default {
 
     if (event.cron === "*/30 * * * *") {
       ctx.waitUntil((async () => {
+        const { pickReconcileTargets, reconcileBucketWithCache } =
+          await import("@/lib/storage/lifecycle");
         const targets = await pickReconcileTargets(5);
         for (const target of targets) {
           try {
@@ -71,6 +70,19 @@ export default {
           } catch (error) {
             console.warn("[scheduled] reconcile failed", target, error);
           }
+        }
+      })());
+      return;
+    }
+
+    if (event.cron === "0 2 * * *") {
+      ctx.waitUntil((async () => {
+        try {
+          const { rollupYesterday } = await import("@/lib/analytics/rollup");
+          const { rows } = await rollupYesterday();
+          console.log("[scheduled] analytics-rollup", { rows });
+        } catch (error) {
+          console.warn("[scheduled] analytics-rollup failed", error);
         }
       })());
       return;

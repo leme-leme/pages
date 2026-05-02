@@ -1,5 +1,6 @@
 import { Toaster } from "@/components/ui/sonner"
 import { Providers } from "@/components/providers";
+import { WebVitalsReporter } from "@/components/web-vitals-reporter";
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import { getBaseUrl } from "@/lib/base-url";
@@ -75,6 +76,7 @@ export default async function RootLayout({
           {children}
         </Providers>
         <Toaster/>
+        <WebVitalsReporter />
       </body>
     </html>
   );

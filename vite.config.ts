@@ -14,4 +14,13 @@ export default defineConfig({
     }),
     tsconfigPaths(),
   ],
+  environments: {
+    client: {
+      build: {
+        rollupOptions: {
+          external: ["cloudflare:workers"],
+        },
+      },
+    },
+  },
 });

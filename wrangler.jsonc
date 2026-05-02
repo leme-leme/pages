@@ -7,7 +7,6 @@
     "enabled": true,
     "head_sampling_rate": 1
   },
-  "upload_source_maps": true,
   "main": "./worker/index.ts",
   "assets": {
     "directory": "./dist/client",
@@ -25,8 +24,15 @@
       "migrations_dir": "db/migrations"
     }
   ],
+  "analytics_engine_datasets": [
+    {
+      "binding": "AE",
+      "dataset": "pages_cms_events"
+    }
+  ],
   "triggers": {
     "crons": [
+      "0 2 * * *",
       "0 3 * * *",
       "*/30 * * * *"
     ]

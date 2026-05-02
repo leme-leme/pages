@@ -63,25 +63,24 @@ Status legend: ✅ shipped in fork · 🟡 partial · ⬜ not started
 ## 3. Analytics — integrate with GA, Cloudflare Analytics, and more
 
 ### Shipped in our fork
-- 🟡 Admin overview metrics (user/install/repo/cache-file counts) — `app/(main)/admin/page.tsx`.
-- 🟡 GitHub Actions run log mirrored in D1 — `db/schema.ts` `action_run`, surfaced via `app/api/[owner]/[repo]/[branch]/actions/route.ts`.
-- 🟡 Entry edit history (read from GitHub commit log) — `app/api/[owner]/[repo]/[branch]/entries/[path]/history/route.ts`.
-- 🟡 Local-only recent-repos tracker — `lib/tracker.ts` (localStorage, no telemetry).
-- 🟡 First-party event stream available via the new `audit_event` table from §2 (mutation log; not yet surfaced as charts).
-- 🟡 Storage byte counters available via `storage_usage` from §1 (per-project; not yet surfaced as charts).
-- ⬜ No third-party analytics, no Web Vitals, no error tracking wired in.
+- ✅ Admin overview metrics (user/install/repo/cache-file counts) — `app/(main)/admin/page.tsx`.
+- ✅ GitHub Actions run log mirrored in D1 — `action_run` table, surfaced via `app/api/[owner]/[repo]/[branch]/actions/route.ts`.
+- ✅ Entry edit history (read from GitHub commit log) — `app/api/[owner]/[repo]/[branch]/entries/[path]/history/route.ts`.
+- ✅ Local-only recent-repos tracker — `lib/tracker.ts` (localStorage, no telemetry).
+- ✅ **First-party CMS event stream** — every `recordAuditEvent` call also writes to the Cloudflare **Analytics Engine** binding `AE` (dataset `pages_cms_events`). Schema in `lib/analytics/schema.ts` (`blob1..17`, `double1..4`); writer in `lib/analytics/collect.ts`. Counterscale-style.
+- ✅ **Storage byte counters** — `cms.media.upload`, `cms.media.delete`, `cms.media.egress` events emit `bytes` so SUM(`double2`) gives stored/egressed totals per project.
+- ✅ **Pluggable site-analytics injection (PRIORITY)** — per-project config in `project_analytics_config` table for GA4 / Plausible / Cloudflare Web Analytics. CRUD at `/api/[owner]/[repo]/[branch]/analytics/config`. The deployed site embeds `<script src="…/analytics/snippet.js">` and the worker serves a tiny runtime (`lib/analytics/site-snippet.ts`) that honors DNT/Sec-GPC, optionally shows a consent banner, and injects the configured providers.
+- ✅ **Core Web Vitals reporting** — `components/web-vitals-reporter.tsx` (no npm dep, raw PerformanceObserver) sends LCP/INP/CLS/FCP/TTFB to `/api/_metrics/web-vitals`, which writes `cms.web-vital` events to AE. Honors DNT and Sec-GPC at the browser layer.
+- ✅ **Server error tracking → AE** — `toErrorResponse` in `lib/api-error.ts` emits `cms.error` events for status >= 500 with route + status + truncated message.
+- ✅ **Admin analytics page** — `/[owner]/[repo]/[branch]/analytics` shows event totals per type, byte in/out per day, 5xx errors, and Web Vitals p75. Backed by `lib/analytics/query.ts` (Cloudflare AE SQL API; requires `CF_ACCOUNT_ID` + `CF_ANALYTICS_API_TOKEN` env).
+- ✅ **Daily rollups → D1** — `lib/analytics/rollup.ts` `rollupYesterday` queries AE for the previous UTC day and writes per-(owner, repo, type) totals into `analytics_rollup` for >90-day retention. Cron `0 2 * * *` in `worker/index.ts`.
+- ✅ **Privacy controls** — `ANALYTICS_DISABLED=true` env disables every server-side write. The Web Vitals route + reporter both short-circuit on DNT/Sec-GPC. The site-snippet runtime supports `requireConsent` + `honorDnt` flags per project, with a vanilla-JS opt-in banner that stores its decision in `localStorage["pcms.consent"]`.
 
-### Needed for production
-- ⬜ **Pluggable site-analytics injection** — per-project config that injects GA4 / Plausible / Cloudflare Web Analytics tags into the *deployed* site. Options stored in the repo's `.pages.yml` or D1 site config; rendered in the build output.
-- ⬜ **CMS product analytics** — first-party event stream for the CMS itself. The audit log already captures mutations; pipe a sampled subset to Cloudflare Analytics Engine for cheap aggregation.
-- ⬜ **Core Web Vitals reporting** — wire the `web-vitals` package in `app/layout.tsx`; ship metrics to Analytics Engine or GA4.
-- ⬜ **Error tracking** — Sentry (or Cloudflare's built-in Workers Logs / Tail Workers) for server + client errors; today errors go to console only.
-- ⬜ **Audit-event analytics** — aggregate `audit_event` rows to surface edits per user, content velocity, stale collections.
-- ⬜ **Storage usage dashboards** — render `storage_usage` as bytes-stored / bytes-egressed time series; surface top files + growth curves.
-- ⬜ **Build/deploy analytics** — surface Workers/Pages deploy success rate, duration, and queue depth alongside the existing `action_run` data.
-- ⬜ **Admin analytics page** — replace the four-number admin overview with time-series charts (DAU, uploads/day, errors/day) sourced from Analytics Engine + `audit_event` + `storage_usage`.
-- ⬜ **Privacy / cookie controls** — consent banner + DNT honoring before any third-party tag fires; GDPR-friendly defaults.
-- ⬜ **Documented opt-out** — env flag to disable all telemetry for self-hosters.
+### Future hardening
+- ⬜ Build/deploy analytics — surface Workers/Pages deploy success rate, duration, queue depth alongside `action_run` data.
+- ⬜ Audit-event aggregates — content velocity, stale collections, top-edited paths (built on top of `analytics_rollup`).
+- ⬜ Sentry integration for client-side JS errors (server errors already go to AE).
+- ⬜ Replace the inline Web Vitals reporter with the `web-vitals` npm package once we have a use case for INP attribution.
 
 ---
 
@@ -89,4 +88,4 @@ Status legend: ✅ shipped in fork · 🟡 partial · ⬜ not started
 
 1. ✅ **Storage hardening first** — done. Presigned URLs, per-project config, lifecycle GC, reconciliation, signed reads, image variants, usage counters, rate limits, docs.
 2. ✅ **Roles + audit log next** — done. Full role/grant model, branch scoping, delegated invites, audit log, non-GitHub identity, API tokens, permission UI.
-3. ⬜ **Analytics last** — sits on top of the `audit_event` and `storage_usage` data the previous two phases produce. Pick an analytics destination (Cloudflare Analytics Engine for first-party + Plausible/GA4 for site-side) and wire dashboards.
+3. ✅ **Analytics last** — done. AE binding wired, audit + storage + errors + Web Vitals all flow into `pages_cms_events`, per-project site-analytics injection covers GA4/Plausible/CF Web Analytics with consent, daily rollups extend retention beyond AE's 90-day window, admin dashboard surfaces it all.

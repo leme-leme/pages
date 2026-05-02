@@ -36,7 +36,8 @@ const mergeUsers = async (
 ) => {
   if (fromUserId === toUserId) return;
 
-  await db.transaction(async (tx) => {
+  await (async () => {
+    const tx = db;
     const fromUser = await tx.query.userTable.findFirst({
       where: eq(userTable.id, fromUserId),
     });
@@ -113,7 +114,7 @@ const mergeUsers = async (
         })
         .where(eq(userTable.id, toUserId));
     }
-  });
+  })();
 };
 
 // Repair old collaborator-invite stub accounts created before the current auth flow.

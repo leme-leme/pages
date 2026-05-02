@@ -311,6 +311,56 @@ const storageUsageTable = sqliteTable("storage_usage", {
   ),
 }));
 
+// Per-project tags injected into the *deployed site* (not the CMS itself).
+// Each provider is independently configurable; nulls = disabled.
+const projectAnalyticsConfigTable = sqliteTable("project_analytics_config", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  owner: text("owner").notNull(),
+  repo: text("repo").notNull(),
+  branch: text("branch").notNull().default(""),
+  // Google Analytics 4 measurement ID (G-XXXXXXX).
+  ga4MeasurementId: text("ga4_measurement_id"),
+  // Plausible: site domain registered in plausible (e.g. "example.com").
+  plausibleDomain: text("plausible_domain"),
+  // Plausible self-hosted base URL (defaults to https://plausible.io).
+  plausibleApiHost: text("plausible_api_host"),
+  // Cloudflare Web Analytics beacon token (the "token" attr on their script).
+  cfBeaconToken: text("cf_beacon_token"),
+  // When true, the snippet emits a small consent banner and only loads the
+  // tag after the user opts in. When false the tag loads immediately, but
+  // the snippet still respects DNT / Sec-GPC.
+  requireConsent: integer("require_consent", { mode: "boolean" }).notNull().default(true),
+  // When true, DNT/Sec-GPC suppress the tag entirely.
+  honorDnt: integer("honor_dnt", { mode: "boolean" }).notNull().default(true),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().default(now),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().default(now),
+}, table => ({
+  uq_project_analytics_owner_repo_branch: uniqueIndex("uq_project_analytics_owner_repo_branch").on(
+    sql`lower(${table.owner})`,
+    sql`lower(${table.repo})`,
+    table.branch,
+  ),
+}));
+
+// Daily aggregates derived from Analytics Engine. Keeps history beyond AE's
+// 90-day window. Written by the daily rollup cron.
+const analyticsRollupTable = sqliteTable("analytics_rollup", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  date: text("date").notNull(), // YYYY-MM-DD UTC
+  owner: text("owner").notNull().default(""),
+  repo: text("repo").notNull().default(""),
+  eventType: text("event_type").notNull(),
+  count: integer("count").notNull().default(0),
+  bytes: integer("bytes").notNull().default(0),
+  uniqueActors: integer("unique_actors").notNull().default(0),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().default(now),
+}, table => ({
+  uq_analytics_rollup: uniqueIndex("uq_analytics_rollup").on(
+    table.date, table.owner, table.repo, table.eventType,
+  ),
+  idx_analytics_rollup_date: index("idx_analytics_rollup_date").on(table.date),
+}));
+
 // Token-bucket rate limiter state. Keyed by `${userId}:${owner}/${repo}`.
 const rateLimitTable = sqliteTable("rate_limit", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -339,4 +389,6 @@ export {
   apiTokenTable,
   storageUsageTable,
   rateLimitTable,
+  projectAnalyticsConfigTable,
+  analyticsRollupTable,
 };

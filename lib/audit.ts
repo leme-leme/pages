@@ -1,6 +1,8 @@
 import { db } from "@/db";
 import { auditEventTable } from "@/db/schema";
 import { and, desc, eq, sql } from "drizzle-orm";
+import { writeEvent } from "@/lib/analytics/collect";
+import type { EventType } from "@/lib/analytics/schema";
 
 export type AuditActor = {
   type?: "user" | "api_token" | "system";
@@ -53,6 +55,33 @@ export async function recordAuditEvent(input: AuditEventInput): Promise<void> {
   } catch (error) {
     // Audit failures should never break the user-facing request.
     console.warn("[audit] failed to write event", error);
+  }
+
+  // Mirror to Analytics Engine for time-series. The action string already
+  // matches the EventType taxonomy in lib/analytics/schema.ts (cms.entry.create
+  // etc.), so we just prefix and forward.
+  try {
+    const aeType = (`cms.${input.action}`) as EventType;
+    const after = (input.after && typeof input.after === "object")
+      ? input.after as Record<string, unknown>
+      : null;
+    const bytesField = after && typeof after.size === "number" ? after.size : undefined;
+    writeEvent({
+      type: aeType,
+      owner: input.owner ?? null,
+      repo: input.repo ?? null,
+      branch: input.branch ?? null,
+      actor: {
+        type: input.actor.type ?? "user",
+        userId: input.actor.userId ?? null,
+        email: input.actor.email ?? null,
+      },
+      resourceType: input.resourceType,
+      resourceId: input.resourceId ?? null,
+      bytes: bytesField,
+    });
+  } catch {
+    // never let analytics break audit
   }
 }
 
