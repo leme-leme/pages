@@ -169,16 +169,25 @@ const MediaFileTile = memo(function MediaFileTile({
       {showThumbnail
         ? (
           <div className="relative">
-            <Thumbnail name={mediaName} path={item.path} className="rounded-t-md aspect-video"/>
-            {onPreview && (
+            {onPreview ? (
               <button
                 type="button"
                 aria-label={`Preview ${item.name}`}
                 onClick={(e) => { e.preventDefault(); e.stopPropagation(); onPreview(item.path); }}
-                className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity rounded-t-md"
+                className="block w-full rounded-t-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              >
+                <Thumbnail name={mediaName} path={item.path} className="rounded-t-md aspect-video"/>
+              </button>
+            ) : (
+              <Thumbnail name={mediaName} path={item.path} className="rounded-t-md aspect-video"/>
+            )}
+            {onPreview && (
+              <div
+                aria-hidden
+                className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-t-md"
               >
                 <Eye className="h-6 w-6 text-white"/>
-              </button>
+              </div>
             )}
           </div>
         )
