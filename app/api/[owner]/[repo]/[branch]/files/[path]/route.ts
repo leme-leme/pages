@@ -12,7 +12,8 @@ import { getToken } from "@/lib/token";
 import { updateFileCache } from "@/lib/github-cache-file";
 import { createHttpError, toErrorResponse } from "@/lib/api-error";
 import { getBaseUrl } from "@/lib/base-url";
-import { isS3Configured, S3_THRESHOLD_BYTES, s3Upload, s3PublicUrl } from "@/lib/storage/s3";
+import { db } from "@/db";
+import { isS3Configured, S3_THRESHOLD_BYTES, s3Upload, s3PublicUrl, s3Delete } from "@/lib/storage/s3";
 import mergeWith from "lodash.mergewith";
 import { buildCommitTokens, resolveCommitIdentity, resolveCommitMessage } from "@/lib/commit-message";
 import { requireApiUserSession } from "@/lib/session-server";
@@ -526,6 +527,35 @@ export async function DELETE(
     if (!type || !["content", "media"].includes(type)) throw new Error(`"type" is required and must be set to "content" or "media".`);
     if (!name && type === "content") throw new Error(`"name" is required.`);
     if (!sha) throw new Error(`"sha" is required.`);
+
+    // S3 DELETE shortcut: when the file lives in S3 (cache row has
+    // provider="s3"), delete from the bucket and update the cache row
+    // directly — no GitHub commit. Drops out of the rest of the handler
+    // because there's no Git ref to advance.
+    if (type === "media" && isS3Configured()) {
+      const cached = await db.query.cacheFileTable.findFirst({
+        where: (t, { and, eq }) =>
+          and(
+            eq(t.owner, params.owner),
+            eq(t.repo, params.repo),
+            eq(t.branch, params.branch),
+            eq(t.path, normalizePath(params.path)),
+          ),
+      });
+      if (cached?.provider === "s3" && cached.s3Key) {
+        await s3Delete(cached.s3Key);
+        await updateFileCache(
+          "media",
+          params.owner, params.repo, params.branch,
+          { type: "delete", path: normalizePath(params.path) } as any,
+        );
+        return Response.json({
+          status: "success",
+          message: `File "${normalizePath(params.path)}" deleted from S3.`,
+          data: { type: "file", path: normalizePath(params.path), provider: "s3" },
+        });
+      }
+    }
 
     const config = await getConfig(params.owner, params.repo, params.branch, {
       getToken: async () => token,
