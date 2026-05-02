@@ -40,8 +40,16 @@ export default async function Layout({
   
   let errorMessage = null;
 
+  let token: string;
   try {
-    const { token } = await getToken(user, owner, repo);
+    const tokenResult = await getToken(user, owner, repo);
+    token = tokenResult.token;
+  } catch (err: any) {
+    console.error(`repo_layout.getToken failed for ${owner}/${repo}: ${err?.message}\n${err?.stack}`);
+    throw new Error(`repo_layout.getToken: ${err?.message ?? String(err)}`);
+  }
+
+  try {
     const syncedConfig = await getConfig(
       owner,
       repo,
@@ -89,7 +97,8 @@ export default async function Layout({
         </Empty>
       );
     } else {
-      throw error;
+      console.error(`repo_layout.config failed for ${owner}/${repo}@${decodedBranch}: status=${error?.status} message=${error?.message}\n${error?.stack}`);
+      throw new Error(`repo_layout.config: status=${error?.status} ${error?.message ?? String(error)}`);
     }
   }
 
