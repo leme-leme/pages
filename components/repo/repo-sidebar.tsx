@@ -70,6 +70,7 @@ import {
   BarChart3,
   LogOut,
   Moon,
+  HardDrive,
   Settings,
   Sun,
   Users,
@@ -365,6 +366,15 @@ export function RepoSidebar() {
         label: "Configuration",
         href: `/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/configuration`,
         icon: <Settings className="size-4" />,
+      });
+    }
+
+    if (canManageRepo) {
+      items.push({
+        key: "admin-storage",
+        label: "Storage",
+        href: `/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/storage`,
+        icon: <HardDrive className="size-4" />,
       });
     }
 

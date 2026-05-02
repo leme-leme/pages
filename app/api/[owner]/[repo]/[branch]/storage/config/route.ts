@@ -14,8 +14,8 @@ const writeSchema = z.object({
   region: z.string().default("us-east-1"),
   bucket: z.string().min(1),
   prefix: z.string().default(""),
-  accessKey: z.string().min(1),
-  secretKey: z.string().min(1),
+  accessKey: z.string().optional(),
+  secretKey: z.string().optional(),
   forcePathStyle: z.boolean().default(true),
   visibility: z.enum(["public", "private"]).default("public"),
   thresholdBytes: z.number().int().positive().default(26214400),
@@ -79,9 +79,16 @@ export async function PUT(
     if (!parsed.success) throw createHttpError(`Invalid body: ${parsed.error.message}`, 400);
 
     const branch = parsed.data.branch ?? "";
-    const enc = await encryptStorageCreds(parsed.data.accessKey, parsed.data.secretKey);
     const lowerOwner = params.owner.toLowerCase();
     const lowerRepo = params.repo.toLowerCase();
+
+    const existing = await getStorageConfig(params.owner, params.repo, params.branch);
+    const accessKey = parsed.data.accessKey || existing?.accessKey;
+    const secretKey = parsed.data.secretKey || existing?.secretKey;
+    if (!accessKey || !secretKey) {
+      throw createHttpError("accessKey and secretKey are required when creating a new storage config.", 400);
+    }
+    const enc = await encryptStorageCreds(accessKey, secretKey);
 
     await db.insert(projectStorageConfigTable)
       .values({
