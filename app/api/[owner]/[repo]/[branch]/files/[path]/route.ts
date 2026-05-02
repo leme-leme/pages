@@ -11,6 +11,8 @@ import { assertGithubIdentity } from "@/lib/authz-shared";
 import { getToken } from "@/lib/token";
 import { updateFileCache } from "@/lib/github-cache-file";
 import { createHttpError, toErrorResponse } from "@/lib/api-error";
+import { getBaseUrl } from "@/lib/base-url";
+import { isS3Configured, S3_THRESHOLD_BYTES, s3Upload, s3PublicUrl } from "@/lib/storage/s3";
 import mergeWith from "lodash.mergewith";
 import { buildCommitTokens, resolveCommitIdentity, resolveCommitMessage } from "@/lib/commit-message";
 import { requireApiUserSession } from "@/lib/session-server";
@@ -178,6 +180,58 @@ export async function POST(
             schema.extensions?.length > 0 &&
             !schema.extensions.includes(getFileExtension(normalizedPath))
           ) throw new Error(`Invalid extension "${getFileExtension(normalizedPath)}" for media.`);
+
+          // Route large media files to S3 when configured. Falls through to
+          // GitHub when S3 isn't configured or the file is below threshold.
+          const declaredSize: number | undefined = typeof data.size === "number" ? data.size : undefined;
+          const approxSize = declaredSize ?? Math.floor((data.content?.length ?? 0) * 0.75);
+          if (isS3Configured() && approxSize > S3_THRESHOLD_BYTES) {
+            const fileBytes = Uint8Array.from(atob(data.content), (c) => c.charCodeAt(0));
+            const ext = getFileExtension(normalizedPath);
+            const mimeTypes: Record<string, string> = {
+              jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png",
+              gif: "image/gif", webp: "image/webp", svg: "image/svg+xml",
+              mp4: "video/mp4", webm: "video/webm", mov: "video/quicktime",
+              pdf: "application/pdf",
+            };
+            const contentType = mimeTypes[ext] ?? "application/octet-stream";
+
+            const { key, size } = await s3Upload(
+              params.owner, params.repo, params.branch,
+              normalizedPath, fileBytes, contentType,
+            );
+            const url = s3PublicUrl(getBaseUrl(), key);
+
+            await updateFileCache(
+              "media",
+              params.owner, params.repo, params.branch,
+              {
+                type: "add",
+                path: normalizedPath,
+                sha: key,
+                size,
+                downloadUrl: url,
+                provider: "s3",
+                s3Key: key,
+                commit: { sha: "", timestamp: Date.now() },
+              } as any,
+            );
+
+            return Response.json({
+              status: "success",
+              message: `File "${normalizedPath}" saved to S3 storage (${(size / 1024 / 1024).toFixed(1)} MB).`,
+              data: {
+                type: "file",
+                sha: null,
+                name: getFileName(normalizedPath),
+                path: normalizedPath,
+                extension: ext,
+                size,
+                url,
+                provider: "s3",
+              },
+            });
+          }
 
           contentBase64 = data.content;
         }

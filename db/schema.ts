@@ -124,7 +124,11 @@ const cacheFileTable = sqliteTable("cache_file", {
   downloadUrl: text("download_url"),
   commitSha: text('commit_sha'),
   commitTimestamp: integer('commit_timestamp', { mode: "timestamp" }),
-  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull()
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  // Storage provider for the file body. "github" = served via raw.githubusercontent
+  // ("download_url"). "s3" = stored in S3/MinIO/R2 under "s3_key" and served via /api/s3/.
+  provider: text("provider").notNull().default("github"),
+  s3Key: text("s3_key"),
 }, table => ({
   idx_cache_file_owner_repo_branch_parentPath: index("idx_cache_file_owner_repo_branch_parentPath").on(table.owner, table.repo, table.branch, table.parentPath),
   idx_cache_file_owner_repo_branch_path: uniqueIndex("idx_cache_file_owner_repo_branch_path").on(table.owner, table.repo, table.branch, table.path)
