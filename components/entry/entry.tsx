@@ -46,6 +46,9 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { useRepoHeader } from "@/components/repo/repo-header-context";
+import { LocaleProvider } from "@/contexts/locale-context";
+import { LocaleSwitcher } from "@/components/locale-switcher";
+import { getCollectionI18n, getI18nConfig } from "@/lib/i18n";
 import {
   Breadcrumb,
   BreadcrumbEllipsis,
@@ -666,6 +669,7 @@ export function Entry({
       </div>
       {showHeaderActions && (
         <div className="flex shrink-0 items-center gap-x-2">
+          <LocaleSwitcher />
           {headerActionsNode}
           {path && (
             historyData && historyData.length > 0 && !isLoading
@@ -837,10 +841,16 @@ export function Entry({
     );
   }
   
-  return (
-    isLoading
-      ? loadingSkeleton
-      : <EntryForm
+  // i18n: when the schema (or root config) opts in, wrap the form in a
+  // LocaleProvider so the LocaleSwitcher in the header and the i18n field
+  // type can read/set the active locale.
+  const i18nConfig = getI18nConfig(config);
+  const i18nEnabled = schema ? getCollectionI18n(schema, config) : false;
+  const localeList = i18nEnabled && i18nConfig?.locales?.length ? i18nConfig.locales : null;
+
+  const formNode = isLoading
+    ? loadingSkeleton
+    : <EntryForm
         fields={entryFields}
         contentObject={entryContentObject}
         onSubmit={onSubmit}
@@ -884,6 +894,9 @@ export function Entry({
           changeVersionRef.current += 1;
           setHasRegisteredChanges(true);
         }}
-      />
-  );
+      />;
+
+  return localeList
+    ? <LocaleProvider locales={localeList}>{formNode}</LocaleProvider>
+    : formNode;
 };
