@@ -18,6 +18,7 @@ import { FolderCreate} from "@/components/folder-create";
 import { FileOptions } from "@/components/file/file-options";
 import { useOptionalRepoHeader } from "@/components/repo/repo-header-context";
 import { MediaUpload} from "./media-upload";
+import { MediaLightbox } from "./media-lightbox";
 import { Thumbnail } from "@/components/thumbnail";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -52,6 +53,7 @@ import {
   File,
   Folder,
   FolderPlus,
+  Eye,
   Upload
 } from "lucide-react";
 
@@ -125,6 +127,7 @@ type MediaFileTileProps = {
   onSelect: (path: string) => void;
   onDelete: (path: string) => void;
   onRename: (path: string, newPath: string) => void;
+  onPreview?: (path: string) => void;
 };
 
 const MediaFileTile = memo(function MediaFileTile({
@@ -138,14 +141,29 @@ const MediaFileTile = memo(function MediaFileTile({
   onSelect,
   onDelete,
   onRename,
+  onPreview,
 }: MediaFileTileProps) {
   const content = (
     <div className={cn(
-      "relative rounded-md",
+      "relative rounded-md group",
       selectable && "hover:bg-muted peer-focus:ring-offset-background peer-focus:ring-2 peer-focus:ring-ring peer-focus:ring-offset-2 peer-checked:ring-offset-background peer-checked:ring-offset-2 peer-checked:ring-2 peer-checked:ring-ring",
     )}>
       {isImage
-        ? <Thumbnail name={mediaName} path={item.path} className="rounded-t-md aspect-video"/>
+        ? (
+          <div className="relative">
+            <Thumbnail name={mediaName} path={item.path} className="rounded-t-md aspect-video"/>
+            {onPreview && (
+              <button
+                type="button"
+                aria-label={`Preview ${item.name}`}
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); onPreview(item.path); }}
+                className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity rounded-t-md"
+              >
+                <Eye className="h-6 w-6 text-white"/>
+              </button>
+            )}
+          </div>
+        )
         : <div className="flex items-center justify-center rounded-md aspect-video">
             <File className="stroke-[0.5] h-24 w-24"/>
           </div>
@@ -253,6 +271,7 @@ const MediaView = ({
 
   const [error, setError] = useState<string | null | undefined>(null);
   const [selected, setSelected] = useState(initialSelected || []);
+  const [lightboxPath, setLightboxPath] = useState<string | null>(null);
 
   useEffect(() => {
     setSelected(initialSelected || []);
@@ -686,6 +705,7 @@ const MediaView = ({
                           onSelect={handleSelect}
                           onDelete={handleDelete}
                           onRename={handleRename}
+                          onPreview={isImage ? setLightboxPath : undefined}
                         />
                     }
                     
@@ -701,6 +721,15 @@ const MediaView = ({
         }
       </div>
     </MediaUpload.DropZone>
+  );
+
+  const lightboxNode = (
+    <MediaLightbox
+      open={lightboxPath !== null}
+      onOpenChange={(open) => { if (!open) setLightboxPath(null); }}
+      name={mediaConfig.name}
+      path={lightboxPath}
+    />
   );
 
   if (!usePageHeader) {
@@ -737,6 +766,7 @@ const MediaView = ({
             />
           </header>
           {mediaGrid}
+          {lightboxNode}
         </div>
       </MediaUpload>
     );
@@ -747,6 +777,7 @@ const MediaView = ({
       <MediaUpload media={mediaConfig.name} path={path} onUpload={handleUpload} extensions={filteredExtensions}>
         {mediaGrid}
       </MediaUpload>
+      {lightboxNode}
     </div>
   );
 };

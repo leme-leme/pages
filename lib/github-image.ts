@@ -296,4 +296,46 @@ const getImgSrcs = (html: string) => {
   return Array.from(html.matchAll(regex));
 }
 
-export { getRelativeUrl, getRawUrl, relativeToRawUrls, rawToRelativeUrls, swapPrefix, htmlSwapPrefix, encodePath, getImgSrcs };
+// Translate a stored output-based path (e.g. "/media/foo.jpg") to
+// the repo input path (e.g. "static/media/foo.jpg") using media config.
+const outputToInputPath = (
+  path: string,
+  media: any,
+  name?: string
+): string => {
+  if (!path) return path;
+  if (!media) return path.replace(/^\//, "");
+
+  const configs: any[] = Array.isArray(media)
+    ? media
+    : typeof media === "string"
+      ? [{ input: media, output: media }]
+      : [media];
+
+  const cfg = name
+    ? configs.find((m: any) => m.name === name) ?? configs[0]
+    : configs[0];
+
+  if (!cfg || typeof cfg === "string") return path.replace(/^\//, "");
+
+  const outputPrefix = (cfg.output ?? "").replace(/\/$/, "");
+  const inputPrefix = (cfg.input ?? "").replace(/\/$/, "");
+
+  const normalizedPath = path.startsWith("/") ? path : "/" + path;
+  const normalizedOutput = outputPrefix.startsWith("/")
+    ? outputPrefix
+    : "/" + outputPrefix;
+
+  if (
+    normalizedOutput &&
+    (normalizedPath === normalizedOutput ||
+      normalizedPath.startsWith(normalizedOutput + "/"))
+  ) {
+    const rest = normalizedPath.slice(normalizedOutput.length);
+    return (inputPrefix + rest).replace(/^\//, "");
+  }
+
+  return path.replace(/^\//, "");
+};
+
+export { getRelativeUrl, getRawUrl, relativeToRawUrls, rawToRelativeUrls, swapPrefix, htmlSwapPrefix, encodePath, getImgSrcs, outputToInputPath };
