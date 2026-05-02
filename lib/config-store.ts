@@ -309,4 +309,4 @@ const getConfig = async (
   }
 };
 
-export { getConfig, saveConfig, updateConfig, touchConfigCheck };
+export { getConfig, getConfigFromDb as getCachedConfig, saveConfig, updateConfig, touchConfigCheck };

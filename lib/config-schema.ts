@@ -171,6 +171,32 @@ const TransformationsSchema = z
   })
   .strict();
 
+// Storage block for media — drives where uploads land. Values may be
+// `${ENV_VAR}` placeholders that get resolved against the worker env at
+// runtime so secrets stay out of the YAML.
+const MediaStorageSchema = z
+  .object({
+    provider: z.enum(["r2", "s3"], {
+      message: "'provider' must be 'r2' or 's3'.",
+    }),
+    bucket: z.string({ message: "'bucket' is required." }).min(1),
+    accountId: z.string().optional(),
+    endpoint: z.string().optional(),
+    region: z.string().optional(),
+    accessKeyId: z.string({ message: "'accessKeyId' is required." }).min(1),
+    secretAccessKey: z.string({ message: "'secretAccessKey' is required." }).min(1),
+    publicUrl: z.string().optional(),
+    prefix: z.string().optional(),
+    visibility: z.enum(["public", "private"]).optional(),
+    forcePathStyle: z.boolean().optional(),
+    thresholdBytes: z.number().int().positive().optional(),
+    maxFileBytes: z.number().int().min(-1).optional(),
+  })
+  .strict()
+  .refine((v) => v.provider !== "r2" || !!v.accountId || !!v.endpoint, {
+    message: "R2 storage requires either 'accountId' or 'endpoint'.",
+  });
+
 // Media configuration object schema (for single object)
 const MediaConfigObject = z
   .object({
@@ -258,6 +284,7 @@ const MediaConfigObject = z
       })
       .optional(),
     transformations: TransformationsSchema.optional(),
+    storage: MediaStorageSchema.optional(),
   })
   .strict();
 
@@ -812,6 +839,30 @@ const ConfigSchema = z
       })
       .optional(),
     media: MediaSchema.optional(),
+    analytics: z
+      .object({
+        ga4MeasurementId: z
+          .string()
+          .regex(/^G-[A-Z0-9]+$/i, {
+            message: "'ga4MeasurementId' must look like 'G-XXXX'.",
+          })
+          .optional(),
+        plausibleDomain: z.string().min(1).optional(),
+        plausibleApiHost: z
+          .string()
+          .url({ message: "'plausibleApiHost' must be a URL." })
+          .optional(),
+        cfBeaconToken: z
+          .string()
+          .regex(/^[a-f0-9]{32}$/i, {
+            message: "'cfBeaconToken' must be a 32-character hex string.",
+          })
+          .optional(),
+        requireConsent: z.boolean().optional(),
+        honorDnt: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
     content: z
       .array(ContentObjectSchema, {
         message:

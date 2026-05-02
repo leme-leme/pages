@@ -16,11 +16,12 @@ import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { projectStorageConfigTable } from "@/db/schema";
 import { decrypt, encrypt } from "@/lib/crypto";
+import { getCachedConfig } from "@/lib/config-store";
 
 export type StorageVisibility = "public" | "private";
 
 export type StorageConfig = {
-  source: "d1" | "env";
+  source: "d1" | "env" | "config";
   endpoint: string;
   region: string;
   bucket: string;
@@ -32,6 +33,79 @@ export type StorageConfig = {
   thresholdBytes: number;
   maxFileBytes: number; // -1 disables
   publicBaseUrl: string | null;
+};
+
+const ENV_PLACEHOLDER = /^\$\{([A-Z0-9_]+)\}$/;
+
+const resolveEnvValue = (value: string | undefined | null): string => {
+  if (!value) return "";
+  const match = ENV_PLACEHOLDER.exec(value.trim());
+  if (!match) return value;
+  const e = env as unknown as Record<string, string | undefined>;
+  return e[match[1]] ?? "";
+};
+
+type ConfigStorageBlock = {
+  provider?: "r2" | "s3";
+  bucket?: string;
+  accountId?: string;
+  endpoint?: string;
+  region?: string;
+  accessKeyId?: string;
+  secretAccessKey?: string;
+  publicUrl?: string;
+  prefix?: string;
+  visibility?: StorageVisibility;
+  forcePathStyle?: boolean;
+  thresholdBytes?: number;
+  maxFileBytes?: number;
+};
+
+const findStorageBlockInConfig = (configObject: any): ConfigStorageBlock | null => {
+  const media = configObject?.media;
+  if (!media) return null;
+  if (Array.isArray(media)) {
+    for (const item of media) {
+      if (item?.storage) return item.storage as ConfigStorageBlock;
+    }
+    return null;
+  }
+  if (typeof media === "object" && media.storage) {
+    return media.storage as ConfigStorageBlock;
+  }
+  return null;
+};
+
+const configStorageFromObject = (configObject: any): StorageConfig | null => {
+  const block = findStorageBlockInConfig(configObject);
+  if (!block) return null;
+  const accessKey = resolveEnvValue(block.accessKeyId);
+  const secretKey = resolveEnvValue(block.secretAccessKey);
+  const bucket = resolveEnvValue(block.bucket);
+  if (!accessKey || !secretKey || !bucket) return null;
+
+  let endpoint = resolveEnvValue(block.endpoint);
+  if (!endpoint && block.provider === "r2") {
+    const accountId = resolveEnvValue(block.accountId);
+    if (!accountId) return null;
+    endpoint = `https://${accountId}.r2.cloudflarestorage.com`;
+  }
+  if (!endpoint) return null;
+
+  return {
+    source: "config",
+    endpoint,
+    region: resolveEnvValue(block.region) || "auto",
+    bucket,
+    accessKey,
+    secretKey,
+    forcePathStyle: block.forcePathStyle ?? true,
+    prefix: resolveEnvValue(block.prefix) || "",
+    visibility: block.visibility ?? "public",
+    thresholdBytes: block.thresholdBytes ?? 26214400,
+    maxFileBytes: block.maxFileBytes ?? -1,
+    publicBaseUrl: resolveEnvValue(block.publicUrl) || null,
+  };
 };
 
 const envConfig = (): StorageConfig | null => {
@@ -110,6 +184,17 @@ export const getStorageConfig = async (
 ): Promise<StorageConfig | null> => {
   const fromProject = await projectConfig(owner, repo, branch);
   if (fromProject) return fromProject;
+
+  if (branch) {
+    try {
+      const cached = await getCachedConfig(owner, repo, branch);
+      const fromConfig = configStorageFromObject(cached?.object);
+      if (fromConfig) return fromConfig;
+    } catch {
+      // best-effort; fall back to env
+    }
+  }
+
   return envConfig();
 };
 

@@ -65,7 +65,7 @@ export default function Page() {
   const [form, setForm] = useState(DEFAULT_FORM);
   const [hasAccessKey, setHasAccessKey] = useState(false);
   const [hasSecretKey, setHasSecretKey] = useState(false);
-  const [source, setSource] = useState<"db" | "env" | "global" | null>(null);
+  const [source, setSource] = useState<"d1" | "env" | "config" | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -168,7 +168,7 @@ export default function Page() {
       if (form.accessKey) setHasAccessKey(true);
       if (form.secretKey) setHasSecretKey(true);
       setForm((prev) => ({ ...prev, accessKey: "", secretKey: "" }));
-      setSource("db");
+      setSource("d1");
     } catch (err: any) {
       toast.error(err?.message ?? "Failed to save storage config");
     } finally {
@@ -205,8 +205,11 @@ export default function Page() {
         <h1 className="text-xl font-semibold">Storage</h1>
         <p className="text-sm text-muted-foreground">
           Per-project S3-compatible bucket (R2, MinIO, Backblaze B2, AWS S3) used for direct media uploads. Credentials are encrypted at rest.
-          {source && source !== "db" && (
-            <> Currently using <span className="font-medium">{source}</span> defaults; saving here overrides them for this project.</>
+          {source === "config" && (
+            <> Currently sourced from <code className="text-xs px-1 py-0.5 bg-muted rounded">media.storage</code> in <code className="text-xs px-1 py-0.5 bg-muted rounded">.pages.yml</code>; saving here overrides it.</>
+          )}
+          {source === "env" && (
+            <> Currently using global worker env defaults; saving here overrides them for this project.</>
           )}
         </p>
       </div>
@@ -337,7 +340,7 @@ export default function Page() {
           </Card>
 
           <div className="flex items-center justify-between gap-2 pb-4">
-            {(hasAccessKey || hasSecretKey || source === "db") ? (
+            {(hasAccessKey || hasSecretKey || source === "d1") ? (
               <AlertDialog>
                 <AlertDialogTrigger asChild>
                   <Button variant="outline" disabled={saving}>
