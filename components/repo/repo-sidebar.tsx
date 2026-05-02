@@ -328,6 +328,15 @@ export function RepoSidebar() {
 
     const configObject = (config.object as any) ?? {};
 
+    if (canManageRepo) {
+      items.push({
+        key: "admin-analytics",
+        label: "Analytics",
+        href: `/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/analytics`,
+        icon: <BarChart3 className="size-4" />,
+      });
+    }
+
     if (canManageRepo && isCacheEnabled(configObject)) {
       items.push({
         key: "admin-cache",
@@ -351,13 +360,6 @@ export function RepoSidebar() {
         href: `/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/collaborators`,
         icon: <Users className="size-4" />,
       });
-
-      items.push({
-        key: "admin-analytics",
-        label: "Analytics",
-        href: `/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/analytics`,
-        icon: <BarChart3 className="size-4" />,
-      });
     }
 
     if (canManageRepo && isConfigEnabled(configObject)) {
@@ -369,16 +371,20 @@ export function RepoSidebar() {
       });
     }
 
-    if (canManageRepo) {
-      items.push({
-        key: "admin-storage",
+    return items;
+  }, [config, user]);
+
+  const mediaExtras = useMemo<NavItem[]>(() => {
+    if (!config) return [];
+    if (!hasGithubIdentity(user)) return [];
+    return [
+      {
+        key: "media-storage",
         label: "Storage",
         href: `/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/storage`,
         icon: <HardDrive className="size-4" />,
-      });
-    }
-
-    return items;
+      },
+    ];
   }, [config, user]);
   const rootActions = useMemo(
     () => getRootActions(config?.object),
@@ -544,8 +550,8 @@ export function RepoSidebar() {
     );
   }
 
-  const renderNavigationGroup = (label: string, nodes: NavigationNode[]) => {
-    if (nodes.length === 0) return null;
+  const renderNavigationGroup = (label: string, nodes: NavigationNode[], extras: NavItem[] = []) => {
+    if (nodes.length === 0 && extras.length === 0) return null;
 
     return (
       <SidebarGroup>
@@ -553,6 +559,20 @@ export function RepoSidebar() {
         <SidebarGroupContent>
           <SidebarMenu>
             {nodes.map((node) => renderNavigationNode(node, `${label}-${node.name}`))}
+            {extras.map((item) => {
+              const isActive =
+                pathname === item.href || pathname.startsWith(`${item.href}/`);
+              return (
+                <SidebarMenuItem key={item.key}>
+                  <SidebarMenuButton asChild isActive={isActive}>
+                    <Link href={item.href} onClick={handleNavigation}>
+                      {item.icon}
+                      <span>{item.label}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              );
+            })}
           </SidebarMenu>
         </SidebarGroupContent>
       </SidebarGroup>
@@ -589,7 +609,7 @@ export function RepoSidebar() {
 
   const groups = [
     renderNavigationGroup("Content", contentNavigation),
-    renderNavigationGroup("Media", mediaNavigation),
+    renderNavigationGroup("Media", mediaNavigation, mediaExtras),
     rootActions.length > 0 && config
       ? (
         <SidebarGroup key="Actions">
