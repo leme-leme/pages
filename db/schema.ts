@@ -84,7 +84,9 @@ const collaboratorTable = sqliteTable("collaborator", {
   branch: text("branch"),
   email: text("email").notNull(),
   userId: text("user_id").references(() => userTable.id),
-  invitedBy: text("invited_by").references(() => userTable.id)
+  invitedBy: text("invited_by").references(() => userTable.id),
+  // Coarse role: owner | editor | author | viewer. Fine-grained access lives in collaborator_grant.
+  role: text("role").notNull().default("editor"),
 }, table => ({
   idx_collaborator_owner_repo_email: index("idx_collaborator_owner_repo_email").on(table.owner, table.repo, table.email),
   idx_collaborator_userId: index("idx_collaborator_userId").on(table.userId),
@@ -92,6 +94,23 @@ const collaboratorTable = sqliteTable("collaborator", {
     sql`lower(${table.owner})`,
     sql`lower(${table.repo})`,
     sql`lower(${table.email})`,
+  ),
+}));
+
+// Per-collaborator grants scoped to a collection / file / media name.
+// scopeType="collection"|"file"|"media", scopeValue = schema name (or "*" for all).
+// permission = "read"|"write".
+const collaboratorGrantTable = sqliteTable("collaborator_grant", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  collaboratorId: integer("collaborator_id").notNull().references(() => collaboratorTable.id, { onDelete: "cascade" }),
+  scopeType: text("scope_type").notNull(),
+  scopeValue: text("scope_value").notNull(),
+  permission: text("permission").notNull().default("write"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().default(now),
+}, table => ({
+  idx_collaborator_grant_collaboratorId: index("idx_collaborator_grant_collaboratorId").on(table.collaboratorId),
+  uq_collaborator_grant: uniqueIndex("uq_collaborator_grant").on(
+    table.collaboratorId, table.scopeType, table.scopeValue, table.permission,
   ),
 }));
 
@@ -129,9 +148,12 @@ const cacheFileTable = sqliteTable("cache_file", {
   // ("download_url"). "s3" = stored in S3/MinIO/R2 under "s3_key" and served via /api/s3/.
   provider: text("provider").notNull().default("github"),
   s3Key: text("s3_key"),
+  // Most recent moment a content reference to this cache row was observed (for orphan GC).
+  referencedAt: integer("referenced_at", { mode: "timestamp" }),
 }, table => ({
   idx_cache_file_owner_repo_branch_parentPath: index("idx_cache_file_owner_repo_branch_parentPath").on(table.owner, table.repo, table.branch, table.parentPath),
-  idx_cache_file_owner_repo_branch_path: uniqueIndex("idx_cache_file_owner_repo_branch_path").on(table.owner, table.repo, table.branch, table.path)
+  idx_cache_file_owner_repo_branch_path: uniqueIndex("idx_cache_file_owner_repo_branch_path").on(table.owner, table.repo, table.branch, table.path),
+  idx_cache_file_provider: index("idx_cache_file_provider").on(table.provider),
 }));
 
 const cacheFileMetaTable = sqliteTable("cache_file_meta", {
@@ -191,6 +213,114 @@ const actionRunTable = sqliteTable("action_run", {
   idx_action_run_workflowRunId: uniqueIndex("idx_action_run_workflowRunId").on(table.workflowRunId),
 }));
 
+// Per-project S3-compatible storage configuration. Credentials encrypted at rest.
+const projectStorageConfigTable = sqliteTable("project_storage_config", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  owner: text("owner").notNull(),
+  repo: text("repo").notNull(),
+  branch: text("branch").notNull().default(""),
+  endpoint: text("endpoint").notNull(),
+  region: text("region").notNull().default("us-east-1"),
+  bucket: text("bucket").notNull(),
+  prefix: text("prefix").notNull().default(""),
+  forcePathStyle: integer("force_path_style", { mode: "boolean" }).notNull().default(true),
+  visibility: text("visibility").notNull().default("public"),
+  // AES-GCM encrypted credentials.
+  accessKeyCiphertext: text("access_key_ciphertext").notNull(),
+  accessKeyIv: text("access_key_iv").notNull(),
+  secretKeyCiphertext: text("secret_key_ciphertext").notNull(),
+  secretKeyIv: text("secret_key_iv").notNull(),
+  // Soft caps; -1 = no limit.
+  thresholdBytes: integer("threshold_bytes").notNull().default(26214400),
+  maxFileBytes: integer("max_file_bytes").notNull().default(-1),
+  // Optional public base URL for direct CDN reads (skips proxy).
+  publicBaseUrl: text("public_base_url"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().default(now),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().default(now),
+}, table => ({
+  uq_project_storage_owner_repo_branch: uniqueIndex("uq_project_storage_owner_repo_branch").on(
+    sql`lower(${table.owner})`,
+    sql`lower(${table.repo})`,
+    table.branch,
+  ),
+}));
+
+// Append-only audit trail. before/after stored as JSON strings.
+const auditEventTable = sqliteTable("audit_event", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  actorUserId: text("actor_user_id").references(() => userTable.id, { onDelete: "set null" }),
+  actorEmail: text("actor_email"),
+  actorType: text("actor_type").notNull().default("user"), // user | api_token | system
+  action: text("action").notNull(),
+  resourceType: text("resource_type").notNull(),
+  resourceId: text("resource_id"),
+  owner: text("owner"),
+  repo: text("repo"),
+  branch: text("branch"),
+  before: text("before"),
+  after: text("after"),
+  metadata: text("metadata"),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().default(now),
+}, table => ({
+  idx_audit_event_owner_repo_createdAt: index("idx_audit_event_owner_repo_createdAt").on(table.owner, table.repo, table.createdAt),
+  idx_audit_event_actorUserId: index("idx_audit_event_actorUserId").on(table.actorUserId),
+  idx_audit_event_action: index("idx_audit_event_action").on(table.action),
+  idx_audit_event_resource: index("idx_audit_event_resource").on(table.resourceType, table.resourceId),
+}));
+
+// Hashed personal access tokens for headless usage. Token plaintext is shown
+// once at creation; only sha256 lives in the DB.
+const apiTokenTable = sqliteTable("api_token", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: text("user_id").notNull().references(() => userTable.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  prefix: text("prefix").notNull(), // first 8 chars for UI display
+  hash: text("hash").notNull().unique(), // sha256 hex of the full token
+  owner: text("owner"),
+  repo: text("repo"),
+  branch: text("branch"),
+  role: text("role").notNull().default("editor"),
+  scopes: text("scopes").notNull().default("[]"), // JSON: [{scopeType, scopeValue, permission}]
+  lastUsedAt: integer("last_used_at", { mode: "timestamp" }),
+  expiresAt: integer("expires_at", { mode: "timestamp" }),
+  revokedAt: integer("revoked_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().default(now),
+}, table => ({
+  idx_api_token_userId: index("idx_api_token_userId").on(table.userId),
+  idx_api_token_owner_repo: index("idx_api_token_owner_repo").on(table.owner, table.repo),
+}));
+
+// Bytes counters per project. Updated on upload + on /api/s3 GET.
+const storageUsageTable = sqliteTable("storage_usage", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  owner: text("owner").notNull(),
+  repo: text("repo").notNull(),
+  branch: text("branch").notNull().default(""),
+  bytesStored: integer("bytes_stored").notNull().default(0),
+  bytesEgressed: integer("bytes_egressed").notNull().default(0),
+  fileCount: integer("file_count").notNull().default(0),
+  lastReconciledAt: integer("last_reconciled_at", { mode: "timestamp" }),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().default(now),
+}, table => ({
+  uq_storage_usage_owner_repo_branch: uniqueIndex("uq_storage_usage_owner_repo_branch").on(
+    sql`lower(${table.owner})`,
+    sql`lower(${table.repo})`,
+    table.branch,
+  ),
+}));
+
+// Token-bucket rate limiter state. Keyed by `${userId}:${owner}/${repo}`.
+const rateLimitTable = sqliteTable("rate_limit", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  bucket: text("bucket").notNull().unique(),
+  tokens: integer("tokens").notNull(),
+  refilledAt: integer("refilled_at", { mode: "timestamp" }).notNull().default(now),
+}, table => ({
+  idx_rate_limit_bucket: uniqueIndex("idx_rate_limit_bucket").on(table.bucket),
+}));
+
 export {
   userTable,
   sessionTable,
@@ -198,9 +328,15 @@ export {
   verificationTable,
   githubInstallationTokenTable,
   collaboratorTable,
+  collaboratorGrantTable,
   configTable,
   cacheFileTable,
   cacheFileMetaTable,
   cachePermissionTable,
-  actionRunTable
+  actionRunTable,
+  projectStorageConfigTable,
+  auditEventTable,
+  apiTokenTable,
+  storageUsageTable,
+  rateLimitTable,
 };

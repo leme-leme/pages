@@ -13,7 +13,11 @@ import { updateFileCache } from "@/lib/github-cache-file";
 import { createHttpError, toErrorResponse } from "@/lib/api-error";
 import { getBaseUrl } from "@/lib/base-url";
 import { db } from "@/db";
-import { isS3Configured, S3_THRESHOLD_BYTES, s3Upload, s3PublicUrl, s3Delete } from "@/lib/storage/s3";
+import { getStorageConfig, s3Key, s3Upload, s3PublicUrl, s3Delete } from "@/lib/storage/s3";
+import { recordUsage } from "@/lib/storage/usage";
+import { recordAuditEvent } from "@/lib/audit";
+import { enforce as enforceRateLimit } from "@/lib/rate-limit";
+import { requirePermission } from "@/lib/authz-server";
 import mergeWith from "lodash.mergewith";
 import { buildCommitTokens, resolveCommitIdentity, resolveCommitMessage } from "@/lib/commit-message";
 import { requireApiUserSession } from "@/lib/session-server";
@@ -184,7 +188,33 @@ export async function POST(
 
           const declaredSize: number | undefined = typeof data.size === "number" ? data.size : undefined;
           const approxSize = declaredSize ?? Math.floor((data.content?.length ?? 0) * 0.75);
-          if (isS3Configured() && approxSize > S3_THRESHOLD_BYTES) {
+          const storageCfg = await getStorageConfig(params.owner, params.repo, params.branch);
+          if (storageCfg) {
+            if (storageCfg.maxFileBytes !== -1 && approxSize > storageCfg.maxFileBytes) {
+              throw createHttpError(
+                `File exceeds storage size limit of ${(storageCfg.maxFileBytes / 1024 / 1024).toFixed(0)} MB.`,
+                413,
+              );
+            }
+          }
+
+          await requirePermission(
+            user,
+            params.owner,
+            params.repo,
+            "write",
+            { type: "media", name: data.name },
+            params.branch,
+          );
+
+          if (storageCfg && approxSize > storageCfg.thresholdBytes) {
+            await enforceRateLimit(`${user.id}:${params.owner}/${params.repo}`, "upload", 1);
+            await enforceRateLimit(
+              `${user.id}:${params.owner}/${params.repo}`,
+              "upload-bytes",
+              Math.max(1, Math.floor(approxSize)),
+            );
+
             const fileBytes = Uint8Array.from(atob(data.content), (c) => c.charCodeAt(0));
             const ext = getFileExtension(normalizedPath);
             const mimeTypes: Record<string, string> = {
@@ -195,11 +225,11 @@ export async function POST(
             };
             const contentType = mimeTypes[ext] ?? "application/octet-stream";
 
-            const { key, size } = await s3Upload(
-              params.owner, params.repo, params.branch,
-              normalizedPath, fileBytes, contentType,
-            );
-            const url = s3PublicUrl(getBaseUrl(), key);
+            const key = s3Key(params.owner, params.repo, params.branch, normalizedPath, storageCfg.prefix);
+            const { size } = await s3Upload(storageCfg, key, fileBytes, contentType);
+            const url = storageCfg.visibility === "private"
+              ? `${getBaseUrl().replace(/\/$/, "")}/api/s3/${key}`
+              : s3PublicUrl(getBaseUrl(), key, storageCfg.publicBaseUrl);
 
             await updateFileCache(
               "media",
@@ -215,6 +245,22 @@ export async function POST(
                 commit: { sha: "", timestamp: Date.now() },
               } as any,
             );
+
+            await recordUsage(params.owner, params.repo, params.branch, {
+              bytesStoredDelta: size,
+              fileCountDelta: 1,
+            });
+
+            await recordAuditEvent({
+              actor: { userId: user.id, email: user.email, type: "user" },
+              action: "media.upload",
+              resourceType: "media",
+              resourceId: normalizedPath,
+              owner: params.owner,
+              repo: params.repo,
+              branch: params.branch,
+              after: { provider: "s3", key, size },
+            });
 
             return Response.json({
               status: "success",
@@ -525,7 +571,7 @@ export async function DELETE(
     if (!name && type === "content") throw new Error(`"name" is required.`);
     if (!sha) throw new Error(`"sha" is required.`);
 
-    if (type === "media" && isS3Configured()) {
+    if (type === "media") {
       const cached = await db.query.cacheFileTable.findFirst({
         where: (t, { and, eq }) =>
           and(
@@ -536,7 +582,9 @@ export async function DELETE(
           ),
       });
       if (cached?.provider === "s3" && cached.s3Key) {
-        await s3Delete(cached.s3Key);
+        const storageCfg = await getStorageConfig(params.owner, params.repo, params.branch);
+        if (!storageCfg) throw new Error("S3 storage is no longer configured for this project.");
+        await s3Delete(storageCfg, cached.s3Key);
         await updateFileCache(
           "media",
           params.owner, params.repo, params.branch,
