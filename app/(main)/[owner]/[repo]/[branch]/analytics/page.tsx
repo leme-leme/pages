@@ -8,6 +8,13 @@ import { SubmitButton } from "@/components/submit-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { BarChart, DayBars, Sparkline } from "@/components/charts/sparkline";
 import { toast } from "sonner";
@@ -32,6 +39,40 @@ const empty: SiteAnalyticsConfig = {
   requireConsent: true,
   honorDnt: true,
 };
+
+type Provider = "none" | "ga4" | "cloudflare" | "plausible";
+
+const providerMeta: Record<Exclude<Provider, "none">, { label: string; placeholder: string }> = {
+  ga4: { label: "Measurement ID", placeholder: "G-XXXXXXX" },
+  cloudflare: { label: "Beacon token", placeholder: "32 hex chars" },
+  plausible: { label: "Site domain", placeholder: "example.com" },
+};
+
+const detectProvider = (cfg: SiteAnalyticsConfig): Provider => {
+  if (cfg.ga4MeasurementId) return "ga4";
+  if (cfg.cfBeaconToken) return "cloudflare";
+  if (cfg.plausibleDomain) return "plausible";
+  return "none";
+};
+
+const identifierFor = (provider: Provider, cfg: SiteAnalyticsConfig): string => {
+  if (provider === "ga4") return cfg.ga4MeasurementId ?? "";
+  if (provider === "cloudflare") return cfg.cfBeaconToken ?? "";
+  if (provider === "plausible") return cfg.plausibleDomain ?? "";
+  return "";
+};
+
+const cfgWithProvider = (
+  base: SiteAnalyticsConfig,
+  provider: Provider,
+  identifier: string,
+): SiteAnalyticsConfig => ({
+  ...base,
+  ga4MeasurementId: provider === "ga4" ? (identifier || null) : null,
+  cfBeaconToken: provider === "cloudflare" ? (identifier || null) : null,
+  plausibleDomain: provider === "plausible" ? (identifier || null) : null,
+  plausibleApiHost: provider === "plausible" ? base.plausibleApiHost : null,
+});
 
 type DeployStats = {
   total: number;
@@ -81,6 +122,8 @@ export default function Page() {
   const { owner, repo, branch } = config;
 
   const [cfg, setCfg] = useState<SiteAnalyticsConfig>(empty);
+  const [provider, setProvider] = useState<Provider>("none");
+  const [identifier, setIdentifier] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
@@ -104,7 +147,13 @@ export default function Page() {
       try {
         const res = await fetch(`${apiBase}/config`);
         const data = await requireApiSuccess<{ data: SiteAnalyticsConfig | null }>(res, "Failed to load config");
-        if (!abort) setCfg(data.data ?? empty);
+        if (!abort) {
+          const next = data.data ?? empty;
+          const detected = detectProvider(next);
+          setCfg(next);
+          setProvider(detected);
+          setIdentifier(identifierFor(detected, next));
+        }
       } catch (error) {
         if (!abort) toast.error(error instanceof Error ? error.message : "Failed to load config");
       } finally {
@@ -151,19 +200,21 @@ export default function Page() {
     event.preventDefault();
     setSaving(true);
     try {
+      const next = cfgWithProvider(cfg, provider, identifier);
       const res = await fetch(`${apiBase}/config`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(cfg),
+        body: JSON.stringify(next),
       });
       await requireApiSuccess(res, "Failed to save config");
+      setCfg(next);
       toast.success("Saved.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to save config");
     } finally {
       setSaving(false);
     }
-  }, [apiBase, cfg]);
+  }, [apiBase, cfg, provider, identifier]);
 
   // Aggregate event totals into a per-day series for the activity sparkline.
   const eventTotalsByDay = useMemo(() => {
@@ -235,9 +286,7 @@ export default function Page() {
         </CardHeader>
         <CardContent>
           {realtime?.unconfigured ? (
-            <p className="text-sm text-muted-foreground">
-              Set <code>CF_ACCOUNT_ID</code> + <code>CF_ANALYTICS_API_TOKEN</code> to enable realtime.
-            </p>
+            <p className="text-sm text-muted-foreground">Realtime not configured.</p>
           ) : realtimeBuckets.length === 0 ? (
             <p className="text-sm text-muted-foreground">No events in the last hour.</p>
           ) : (
@@ -253,9 +302,7 @@ export default function Page() {
         </CardHeader>
         <CardContent className="space-y-4">
           {dashboard?.unconfigured ? (
-            <p className="text-sm text-muted-foreground">
-              Set <code>CF_ACCOUNT_ID</code> + <code>CF_ANALYTICS_API_TOKEN</code> env vars to enable analytics.
-            </p>
+            <p className="text-sm text-muted-foreground">Analytics not configured.</p>
           ) : !dashboard ? (
             <p className="text-sm text-muted-foreground">Loading…</p>
           ) : eventTotalsByDay.length === 0 ? (
@@ -482,45 +529,47 @@ export default function Page() {
 
           <form onSubmit={save} className="space-y-4">
             <div className="space-y-1">
-              <Label htmlFor="ga4">Google Analytics 4 measurement ID</Label>
-              <Input
-                id="ga4"
-                placeholder="G-XXXXXXX"
-                value={cfg.ga4MeasurementId ?? ""}
+              <Label htmlFor="provider">Provider</Label>
+              <Select
+                value={provider}
+                onValueChange={(value) => setProvider(value as Provider)}
                 disabled={loading}
-                onChange={(e) => setCfg((c) => ({ ...c, ga4MeasurementId: e.target.value || null }))}
-              />
+              >
+                <SelectTrigger id="provider">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  <SelectItem value="ga4">Google Analytics 4</SelectItem>
+                  <SelectItem value="cloudflare">Cloudflare Web Analytics</SelectItem>
+                  <SelectItem value="plausible">Plausible</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-            <div className="space-y-1">
-              <Label htmlFor="plausible-domain">Plausible site domain</Label>
-              <Input
-                id="plausible-domain"
-                placeholder="example.com"
-                value={cfg.plausibleDomain ?? ""}
-                disabled={loading}
-                onChange={(e) => setCfg((c) => ({ ...c, plausibleDomain: e.target.value || null }))}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="plausible-host">Plausible host (self-hosted only)</Label>
-              <Input
-                id="plausible-host"
-                placeholder="https://plausible.io"
-                value={cfg.plausibleApiHost ?? ""}
-                disabled={loading}
-                onChange={(e) => setCfg((c) => ({ ...c, plausibleApiHost: e.target.value || null }))}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="cf-token">Cloudflare Web Analytics beacon token</Label>
-              <Input
-                id="cf-token"
-                placeholder="32 hex chars"
-                value={cfg.cfBeaconToken ?? ""}
-                disabled={loading}
-                onChange={(e) => setCfg((c) => ({ ...c, cfBeaconToken: e.target.value || null }))}
-              />
-            </div>
+            {provider !== "none" && (
+              <div className="space-y-1">
+                <Label htmlFor="identifier">{providerMeta[provider].label}</Label>
+                <Input
+                  id="identifier"
+                  placeholder={providerMeta[provider].placeholder}
+                  value={identifier}
+                  disabled={loading}
+                  onChange={(e) => setIdentifier(e.target.value)}
+                />
+              </div>
+            )}
+            {provider === "plausible" && (
+              <div className="space-y-1">
+                <Label htmlFor="plausible-host">API host (self-hosted only)</Label>
+                <Input
+                  id="plausible-host"
+                  placeholder="https://plausible.io"
+                  value={cfg.plausibleApiHost ?? ""}
+                  disabled={loading}
+                  onChange={(e) => setCfg((c) => ({ ...c, plausibleApiHost: e.target.value || null }))}
+                />
+              </div>
+            )}
             <div className="flex items-center gap-3">
               <Switch
                 id="require-consent"
