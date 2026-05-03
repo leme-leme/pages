@@ -44,7 +44,6 @@ import {
 } from "@/components/ui/empty";
 import { CheckCircle2, ChevronDown, ExternalLink, Loader, Save, Trash2, XCircle } from "lucide-react";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
 
 type Source = "d1" | "env" | "config";
 
@@ -268,8 +267,7 @@ export default function Page() {
       <div className="flex flex-col gap-1">
         <h1 className="text-xl font-semibold">Storage</h1>
         <p className="text-sm text-muted-foreground">
-          S3-compatible bucket used for direct media uploads. Resolution order:
-          per-project override → <code className="text-xs px-1 py-0.5 bg-muted rounded">media.storage</code> in <code className="text-xs px-1 py-0.5 bg-muted rounded">.pages.yml</code> → worker env.
+          S3-compatible bucket used for direct media uploads.
         </p>
       </div>
 
@@ -294,7 +292,7 @@ export default function Page() {
               <CardHeader>
                 <CardTitle>Per-project override</CardTitle>
                 <CardDescription>
-                  Save bucket details + encrypted credentials in D1 for this project. Takes precedence over <code className="text-xs px-1 py-0.5 bg-muted rounded">.pages.yml</code> and worker env.
+                  Encrypted credentials stored in D1, taking precedence over <code className="text-xs px-1 py-0.5 bg-muted rounded">.pages.yml</code>.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -307,120 +305,110 @@ export default function Page() {
             <>
               <Card>
                 <CardHeader>
-                  <CardTitle>Bucket</CardTitle>
-                  <CardDescription>Where uploaded media lives.</CardDescription>
+                  <CardTitle>Per-project override</CardTitle>
+                  <CardDescription>Encrypted in D1. Wins over <code className="text-xs px-1 py-0.5 bg-muted rounded">.pages.yml</code> and worker env.</CardDescription>
                 </CardHeader>
-                <CardContent className="grid gap-4 sm:grid-cols-2">
-                  <Field label="Endpoint" required hint="https://<account>.r2.cloudflarestorage.com / https://s3.amazonaws.com / etc.">
-                    <Input
-                      type="url"
-                      value={form.endpoint}
-                      onChange={(e) => setForm({ ...form, endpoint: e.target.value })}
-                      placeholder="https://..."
-                    />
-                  </Field>
-                  <Field label="Region">
-                    <Input
-                      value={form.region}
-                      onChange={(e) => setForm({ ...form, region: e.target.value })}
-                      placeholder="us-east-1"
-                    />
-                  </Field>
-                  <Field label="Bucket" required>
-                    <Input
-                      value={form.bucket}
-                      onChange={(e) => setForm({ ...form, bucket: e.target.value })}
-                      placeholder="my-media-bucket"
-                    />
-                  </Field>
-                  <Field label="Prefix" hint="Object key prefix (folder).">
-                    <Input
-                      value={form.prefix}
-                      onChange={(e) => setForm({ ...form, prefix: e.target.value })}
-                      placeholder="uploads/"
-                    />
-                  </Field>
-                  <Field label="Force path style" hint="Required for most non-AWS S3-compatible providers.">
-                    <Switch
-                      checked={form.forcePathStyle}
-                      onCheckedChange={(checked) => setForm({ ...form, forcePathStyle: checked })}
-                    />
-                  </Field>
-                  <Field label="Visibility">
-                    <Select
-                      value={form.visibility}
-                      onValueChange={(value) => setForm({ ...form, visibility: value as "public" | "private" })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="public">Public (URL)</SelectItem>
-                        <SelectItem value="private">Private (presigned)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                  <Field label="Public base URL" hint="Optional CDN/custom-domain prefix served from the bucket.">
-                    <Input
-                      type="url"
-                      value={form.publicBaseUrl}
-                      onChange={(e) => setForm({ ...form, publicBaseUrl: e.target.value })}
-                      placeholder="https://media.example.com"
-                    />
-                  </Field>
-                </CardContent>
-              </Card>
+                <CardContent className="space-y-4">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Field label="Endpoint" required>
+                      <Input
+                        type="url"
+                        value={form.endpoint}
+                        onChange={(e) => setForm({ ...form, endpoint: e.target.value })}
+                        placeholder="https://..."
+                      />
+                    </Field>
+                    <Field label="Bucket" required>
+                      <Input
+                        value={form.bucket}
+                        onChange={(e) => setForm({ ...form, bucket: e.target.value })}
+                        placeholder="my-media-bucket"
+                      />
+                    </Field>
+                    <Field label="Access key" required={!hasAccessKey}>
+                      <Input
+                        value={form.accessKey}
+                        onChange={(e) => setForm({ ...form, accessKey: e.target.value })}
+                        placeholder={hasAccessKey ? "•••••••• (saved)" : ""}
+                        autoComplete="off"
+                      />
+                    </Field>
+                    <Field label="Secret key" required={!hasSecretKey}>
+                      <Input
+                        type="password"
+                        value={form.secretKey}
+                        onChange={(e) => setForm({ ...form, secretKey: e.target.value })}
+                        placeholder={hasSecretKey ? "•••••••• (saved)" : ""}
+                        autoComplete="off"
+                      />
+                    </Field>
+                  </div>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle>Credentials</CardTitle>
-                  <CardDescription>
-                    Stored encrypted with AES-GCM in D1. Leave blank to keep the existing credentials.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="grid gap-4 sm:grid-cols-2">
-                  <Field label="Access key" required={!hasAccessKey}>
-                    <Input
-                      value={form.accessKey}
-                      onChange={(e) => setForm({ ...form, accessKey: e.target.value })}
-                      placeholder={hasAccessKey ? "•••••••• (saved)" : "AKIA..."}
-                      autoComplete="off"
-                    />
-                  </Field>
-                  <Field label="Secret key" required={!hasSecretKey}>
-                    <Input
-                      type="password"
-                      value={form.secretKey}
-                      onChange={(e) => setForm({ ...form, secretKey: e.target.value })}
-                      placeholder={hasSecretKey ? "•••••••• (saved)" : ""}
-                      autoComplete="off"
-                    />
-                  </Field>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Upload limits</CardTitle>
-                  <CardDescription>Direct-to-S3 kicks in for files larger than the threshold.</CardDescription>
-                </CardHeader>
-                <CardContent className="grid gap-4 sm:grid-cols-2">
-                  <Field label="Threshold (MB)" hint="Files at or above this size go straight to the bucket.">
-                    <Input
-                      type="number"
-                      min={1}
-                      value={form.thresholdMB}
-                      onChange={(e) => setForm({ ...form, thresholdMB: Number(e.target.value) || 1 })}
-                    />
-                  </Field>
-                  <Field label="Max file size (MB)" hint="-1 for unlimited.">
-                    <Input
-                      type="number"
-                      min={-1}
-                      value={form.maxFileMB}
-                      onChange={(e) => setForm({ ...form, maxFileMB: Number(e.target.value) || -1 })}
-                    />
-                  </Field>
+                  <details className="group">
+                    <summary className="cursor-pointer text-sm font-medium text-muted-foreground hover:text-foreground select-none flex items-center gap-1.5">
+                      <ChevronDown className="size-4 transition-transform group-open:rotate-180" /> Advanced
+                    </summary>
+                    <div className="grid gap-4 sm:grid-cols-2 pt-4">
+                      <Field label="Region">
+                        <Input
+                          value={form.region}
+                          onChange={(e) => setForm({ ...form, region: e.target.value })}
+                          placeholder="us-east-1"
+                        />
+                      </Field>
+                      <Field label="Visibility">
+                        <Select
+                          value={form.visibility}
+                          onValueChange={(value) => setForm({ ...form, visibility: value as "public" | "private" })}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="public">Public</SelectItem>
+                            <SelectItem value="private">Private (presigned)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </Field>
+                      <Field label="Prefix" hint="Object key prefix.">
+                        <Input
+                          value={form.prefix}
+                          onChange={(e) => setForm({ ...form, prefix: e.target.value })}
+                          placeholder="uploads/"
+                        />
+                      </Field>
+                      <Field label="Public base URL" hint="CDN / custom domain.">
+                        <Input
+                          type="url"
+                          value={form.publicBaseUrl}
+                          onChange={(e) => setForm({ ...form, publicBaseUrl: e.target.value })}
+                          placeholder="https://media.example.com"
+                        />
+                      </Field>
+                      <Field label="Threshold (MB)" hint="Files at or above this size skip GitHub.">
+                        <Input
+                          type="number"
+                          min={1}
+                          value={form.thresholdMB}
+                          onChange={(e) => setForm({ ...form, thresholdMB: Number(e.target.value) || 1 })}
+                        />
+                      </Field>
+                      <Field label="Max file size (MB)" hint="-1 for unlimited.">
+                        <Input
+                          type="number"
+                          min={-1}
+                          value={form.maxFileMB}
+                          onChange={(e) => setForm({ ...form, maxFileMB: Number(e.target.value) || -1 })}
+                        />
+                      </Field>
+                      <Field label="Force path style" hint="Required for most non-AWS providers.">
+                        <Switch
+                          checked={form.forcePathStyle}
+                          onCheckedChange={(checked) => setForm({ ...form, forcePathStyle: checked })}
+                        />
+                      </Field>
+                    </div>
+                  </details>
                 </CardContent>
               </Card>
 
@@ -467,34 +455,27 @@ function ActiveStatusCard({ active }: { active: ActiveConfig | null }) {
   if (!active) {
     return (
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <XCircle className="size-5 text-muted-foreground" /> Storage not configured
-          </CardTitle>
-          <CardDescription>
-            Direct uploads &gt; 25 MB will fail. Add <code className="text-xs px-1 py-0.5 bg-muted rounded">media.storage</code> to your <code className="text-xs px-1 py-0.5 bg-muted rounded">.pages.yml</code>, or save a per-project override below.
-          </CardDescription>
+        <CardHeader className="flex flex-row items-start gap-3 space-y-0">
+          <XCircle className="size-5 text-muted-foreground shrink-0 mt-0.5" />
+          <div>
+            <CardTitle>Not configured</CardTitle>
+            <CardDescription>Uploads &gt; 25 MB will fail.</CardDescription>
+          </div>
         </CardHeader>
       </Card>
     );
   }
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <CheckCircle2 className="size-5 text-emerald-600" /> Storage active
-        </CardTitle>
-        <CardDescription>Source: {sourceLabel[active.source]}</CardDescription>
+      <CardHeader className="flex flex-row items-start gap-3 space-y-0">
+        <CheckCircle2 className="size-5 text-emerald-600 shrink-0 mt-0.5" />
+        <div className="min-w-0 flex-1">
+          <CardTitle>Active · <span className="font-mono text-sm">{active.bucket}</span></CardTitle>
+          <CardDescription>
+            {sourceLabel[active.source]} · uploads ≥ {Math.round(active.thresholdBytes / 1024 / 1024)} MB go direct
+          </CardDescription>
+        </div>
       </CardHeader>
-      <CardContent className="grid gap-2 sm:grid-cols-2 text-sm">
-        <Detail label="Bucket" value={active.bucket} />
-        <Detail label="Endpoint" value={active.endpoint} mono />
-        <Detail label="Region" value={active.region} />
-        <Detail label="Visibility" value={active.visibility} />
-        <Detail label="Threshold" value={`${Math.round(active.thresholdBytes / 1024 / 1024)} MB`} />
-        <Detail label="Max file" value={active.maxFileBytes > 0 ? `${Math.round(active.maxFileBytes / 1024 / 1024)} MB` : "Unlimited"} />
-        {active.publicBaseUrl && <Detail label="Public base URL" value={active.publicBaseUrl} mono />}
-      </CardContent>
     </Card>
   );
 }
@@ -554,15 +535,6 @@ function ConfigBlockCard({
         )}
       </CardContent>
     </Card>
-  );
-}
-
-function Detail({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className="flex flex-col gap-0.5 min-w-0">
-      <span className="text-xs uppercase tracking-wide text-muted-foreground">{label}</span>
-      <span className={cn("truncate", mono && "font-mono text-xs")}>{value}</span>
-    </div>
   );
 }
 
