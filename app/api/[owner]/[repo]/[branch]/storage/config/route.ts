@@ -5,7 +5,14 @@ import { db } from "@/db";
 import { projectStorageConfigTable } from "@/db/schema";
 import { requireApiUserSession } from "@/lib/session-server";
 import { requirePermission } from "@/lib/authz-server";
-import { encryptStorageCreds, getStorageConfig } from "@/lib/storage/s3";
+import {
+  checkEnvVarsPresent,
+  collectEnvVarRefs,
+  encryptStorageCreds,
+  findStorageBlockInConfig,
+  getStorageConfig,
+} from "@/lib/storage/s3";
+import { getCachedConfig } from "@/lib/config-store";
 import { recordAuditEvent } from "@/lib/audit";
 import { createHttpError, toErrorResponse } from "@/lib/api-error";
 
@@ -36,26 +43,36 @@ export async function GET(
 
     await requirePermission(user, params.owner, params.repo, "admin", undefined, params.branch);
 
-    const cfg = await getStorageConfig(params.owner, params.repo, params.branch);
+    const [cfg, cached] = await Promise.all([
+      getStorageConfig(params.owner, params.repo, params.branch),
+      getCachedConfig(params.owner, params.repo, params.branch).catch(() => null),
+    ]);
+    const configBlock = findStorageBlockInConfig(cached?.object);
+    const envVars = collectEnvVarRefs(configBlock);
+    const envStatus = checkEnvVarsPresent(envVars);
+
     return Response.json({
       status: "success",
-      data: cfg
-        ? {
-            endpoint: cfg.endpoint,
-            region: cfg.region,
-            bucket: cfg.bucket,
-            prefix: cfg.prefix,
-            forcePathStyle: cfg.forcePathStyle,
-            visibility: cfg.visibility,
-            thresholdBytes: cfg.thresholdBytes,
-            maxFileBytes: cfg.maxFileBytes,
-            publicBaseUrl: cfg.publicBaseUrl,
-            source: cfg.source,
-            // never return the credentials
-            hasAccessKey: !!cfg.accessKey,
-            hasSecretKey: !!cfg.secretKey,
-          }
-        : null,
+      data: {
+        active: cfg
+          ? {
+              endpoint: cfg.endpoint,
+              region: cfg.region,
+              bucket: cfg.bucket,
+              prefix: cfg.prefix,
+              forcePathStyle: cfg.forcePathStyle,
+              visibility: cfg.visibility,
+              thresholdBytes: cfg.thresholdBytes,
+              maxFileBytes: cfg.maxFileBytes,
+              publicBaseUrl: cfg.publicBaseUrl,
+              source: cfg.source,
+              hasAccessKey: !!cfg.accessKey,
+              hasSecretKey: !!cfg.secretKey,
+            }
+          : null,
+        configBlock: configBlock ?? null,
+        envStatus,
+      },
     });
   } catch (error: any) {
     console.error(error);

@@ -45,7 +45,7 @@ const resolveEnvValue = (value: string | undefined | null): string => {
   return e[match[1]] ?? "";
 };
 
-type ConfigStorageBlock = {
+export type ConfigStorageBlock = {
   provider?: "r2" | "s3";
   bucket?: string;
   accountId?: string;
@@ -61,7 +61,7 @@ type ConfigStorageBlock = {
   maxFileBytes?: number;
 };
 
-const findStorageBlockInConfig = (configObject: any): ConfigStorageBlock | null => {
+export const findStorageBlockInConfig = (configObject: any): ConfigStorageBlock | null => {
   const media = configObject?.media;
   if (!media) return null;
   if (Array.isArray(media)) {
@@ -74,6 +74,25 @@ const findStorageBlockInConfig = (configObject: any): ConfigStorageBlock | null 
     return media.storage as ConfigStorageBlock;
   }
   return null;
+};
+
+export const collectEnvVarRefs = (block: ConfigStorageBlock | null | undefined): string[] => {
+  if (!block) return [];
+  const seen = new Set<string>();
+  for (const key of Object.keys(block) as (keyof ConfigStorageBlock)[]) {
+    const value = block[key];
+    if (typeof value !== "string") continue;
+    const match = ENV_PLACEHOLDER.exec(value.trim());
+    if (match) seen.add(match[1]);
+  }
+  return Array.from(seen);
+};
+
+export const checkEnvVarsPresent = (names: string[]): Record<string, boolean> => {
+  const e = env as unknown as Record<string, string | undefined>;
+  const out: Record<string, boolean> = {};
+  for (const name of names) out[name] = !!e[name];
+  return out;
 };
 
 const configStorageFromObject = (configObject: any): StorageConfig | null => {

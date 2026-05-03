@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { DocumentTitle, formatRepoBranchTitle } from "@/components/document-title";
 import { useConfig } from "@/contexts/config-context";
@@ -41,8 +42,42 @@ import {
   EmptyHeader,
   EmptyTitle,
 } from "@/components/ui/empty";
-import { Loader, Save, Trash2 } from "lucide-react";
+import { CheckCircle2, ChevronDown, ExternalLink, Loader, Save, Trash2, XCircle } from "lucide-react";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
+
+type Source = "d1" | "env" | "config";
+
+type ActiveConfig = {
+  endpoint: string;
+  region: string;
+  bucket: string;
+  prefix: string;
+  forcePathStyle: boolean;
+  visibility: "public" | "private";
+  thresholdBytes: number;
+  maxFileBytes: number;
+  publicBaseUrl: string | null;
+  source: Source;
+  hasAccessKey: boolean;
+  hasSecretKey: boolean;
+};
+
+type ConfigBlock = {
+  provider?: "r2" | "s3";
+  bucket?: string;
+  accountId?: string;
+  endpoint?: string;
+  region?: string;
+  accessKeyId?: string;
+  secretAccessKey?: string;
+  publicUrl?: string;
+  prefix?: string;
+  visibility?: "public" | "private";
+  forcePathStyle?: boolean;
+  thresholdBytes?: number;
+  maxFileBytes?: number;
+};
 
 const DEFAULT_FORM = {
   endpoint: "",
@@ -58,14 +93,21 @@ const DEFAULT_FORM = {
   publicBaseUrl: "",
 };
 
+const sourceLabel: Record<Source, string> = {
+  d1: "Per-project override (encrypted in D1)",
+  config: "media.storage in .pages.yml",
+  env: "Worker env defaults",
+};
+
 export default function Page() {
   const { config } = useConfig();
   const { user } = useUser();
 
+  const [active, setActive] = useState<ActiveConfig | null>(null);
+  const [configBlock, setConfigBlock] = useState<ConfigBlock | null>(null);
+  const [envStatus, setEnvStatus] = useState<Record<string, boolean>>({});
   const [form, setForm] = useState(DEFAULT_FORM);
-  const [hasAccessKey, setHasAccessKey] = useState(false);
-  const [hasSecretKey, setHasSecretKey] = useState(false);
-  const [source, setSource] = useState<"d1" | "env" | "config" | null>(null);
+  const [showOverride, setShowOverride] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -80,29 +122,29 @@ export default function Page() {
         );
         const result = await requireApiSuccess<any>(response, "Failed to load storage config");
         if (cancelled) return;
-        const cfg = result.data;
+        const data = result.data ?? {};
+        const cfg = (data.active ?? null) as ActiveConfig | null;
+        setActive(cfg);
+        setConfigBlock((data.configBlock ?? null) as ConfigBlock | null);
+        setEnvStatus((data.envStatus ?? {}) as Record<string, boolean>);
+        setShowOverride(cfg?.source === "d1");
+
         if (cfg) {
           setForm({
-            endpoint: cfg.endpoint ?? "",
-            region: cfg.region ?? "us-east-1",
-            bucket: cfg.bucket ?? "",
-            prefix: cfg.prefix ?? "",
+            endpoint: cfg.endpoint,
+            region: cfg.region,
+            bucket: cfg.bucket,
+            prefix: cfg.prefix,
             accessKey: "",
             secretKey: "",
-            forcePathStyle: cfg.forcePathStyle ?? true,
-            visibility: (cfg.visibility ?? "public") as "public" | "private",
+            forcePathStyle: cfg.forcePathStyle,
+            visibility: cfg.visibility,
             thresholdMB: cfg.thresholdBytes ? Math.round(cfg.thresholdBytes / 1024 / 1024) : 25,
             maxFileMB: cfg.maxFileBytes && cfg.maxFileBytes > 0 ? Math.round(cfg.maxFileBytes / 1024 / 1024) : -1,
             publicBaseUrl: cfg.publicBaseUrl ?? "",
           });
-          setHasAccessKey(!!cfg.hasAccessKey);
-          setHasSecretKey(!!cfg.hasSecretKey);
-          setSource(cfg.source ?? null);
         } else {
           setForm(DEFAULT_FORM);
-          setHasAccessKey(false);
-          setHasSecretKey(false);
-          setSource(null);
         }
       } catch (err: any) {
         toast.error(err?.message ?? "Failed to load storage config");
@@ -126,16 +168,20 @@ export default function Page() {
     );
   }
 
+  const hasAccessKey = active?.hasAccessKey ?? false;
+  const hasSecretKey = active?.hasSecretKey ?? false;
+  const source = active?.source ?? null;
+
   const handleSave = async () => {
     if (!form.endpoint || !form.bucket) {
       toast.error("Endpoint and bucket are required.");
       return;
     }
-    if (!hasAccessKey && !form.accessKey) {
+    if (source !== "d1" && !form.accessKey) {
       toast.error("Access key is required.");
       return;
     }
-    if (!hasSecretKey && !form.secretKey) {
+    if (source !== "d1" && !form.secretKey) {
       toast.error("Secret key is required.");
       return;
     }
@@ -164,11 +210,23 @@ export default function Page() {
         },
       );
       await requireApiSuccess<any>(response, "Failed to save storage config");
-      toast.success("Storage settings saved.");
-      if (form.accessKey) setHasAccessKey(true);
-      if (form.secretKey) setHasSecretKey(true);
+      toast.success("Override saved.");
       setForm((prev) => ({ ...prev, accessKey: "", secretKey: "" }));
-      setSource("d1");
+      setActive((prev) => ({
+        ...(prev ?? ({} as ActiveConfig)),
+        endpoint: body.endpoint,
+        region: body.region,
+        bucket: body.bucket,
+        prefix: body.prefix,
+        forcePathStyle: body.forcePathStyle,
+        visibility: body.visibility,
+        thresholdBytes: body.thresholdBytes,
+        maxFileBytes: body.maxFileBytes,
+        publicBaseUrl: body.publicBaseUrl,
+        source: "d1",
+        hasAccessKey: hasAccessKey || !!form.accessKey,
+        hasSecretKey: hasSecretKey || !!form.secretKey,
+      }));
     } catch (err: any) {
       toast.error(err?.message ?? "Failed to save storage config");
     } finally {
@@ -183,14 +241,20 @@ export default function Page() {
         `/api/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/storage/config`,
         { method: "DELETE" },
       );
-      await requireApiSuccess<any>(response, "Failed to delete storage config");
-      toast.success("Storage settings cleared.");
+      await requireApiSuccess<any>(response, "Failed to delete storage override");
+      toast.success("Override cleared.");
+      const reload = await fetch(
+        `/api/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/storage/config`,
+      );
+      const result = await requireApiSuccess<any>(reload, "Failed to reload storage config");
+      const data = result.data ?? {};
+      setActive((data.active ?? null) as ActiveConfig | null);
+      setConfigBlock((data.configBlock ?? null) as ConfigBlock | null);
+      setEnvStatus((data.envStatus ?? {}) as Record<string, boolean>);
+      setShowOverride(false);
       setForm(DEFAULT_FORM);
-      setHasAccessKey(false);
-      setHasSecretKey(false);
-      setSource(null);
     } catch (err: any) {
-      toast.error(err?.message ?? "Failed to delete storage config");
+      toast.error(err?.message ?? "Failed to delete storage override");
     } finally {
       setSaving(false);
     }
@@ -204,13 +268,8 @@ export default function Page() {
       <div className="flex flex-col gap-1">
         <h1 className="text-xl font-semibold">Storage</h1>
         <p className="text-sm text-muted-foreground">
-          Per-project S3-compatible bucket (R2, MinIO, Backblaze B2, AWS S3) used for direct media uploads. Credentials are encrypted at rest.
-          {source === "config" && (
-            <> Currently sourced from <code className="text-xs px-1 py-0.5 bg-muted rounded">media.storage</code> in <code className="text-xs px-1 py-0.5 bg-muted rounded">.pages.yml</code>; saving here overrides it.</>
-          )}
-          {source === "env" && (
-            <> Currently using global worker env defaults; saving here overrides them for this project.</>
-          )}
+          S3-compatible bucket (R2, MinIO, Backblaze B2, AWS S3) used for direct media uploads. Resolution order:
+          per-project override → <code className="text-xs px-1 py-0.5 bg-muted rounded">media.storage</code> in <code className="text-xs px-1 py-0.5 bg-muted rounded">.pages.yml</code> → worker env.
         </p>
       </div>
 
@@ -220,156 +279,306 @@ export default function Page() {
         </div>
       ) : (
         <>
-          <Card>
-            <CardHeader>
-              <CardTitle>Bucket</CardTitle>
-              <CardDescription>Where uploaded media lives.</CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-4 sm:grid-cols-2">
-              <Field label="Endpoint" required hint="https://<account>.r2.cloudflarestorage.com / https://s3.amazonaws.com / etc.">
-                <Input
-                  type="url"
-                  value={form.endpoint}
-                  onChange={(e) => setForm({ ...form, endpoint: e.target.value })}
-                  placeholder="https://..."
-                />
-              </Field>
-              <Field label="Region">
-                <Input
-                  value={form.region}
-                  onChange={(e) => setForm({ ...form, region: e.target.value })}
-                  placeholder="us-east-1"
-                />
-              </Field>
-              <Field label="Bucket" required>
-                <Input
-                  value={form.bucket}
-                  onChange={(e) => setForm({ ...form, bucket: e.target.value })}
-                  placeholder="my-media-bucket"
-                />
-              </Field>
-              <Field label="Prefix" hint="Object key prefix (folder).">
-                <Input
-                  value={form.prefix}
-                  onChange={(e) => setForm({ ...form, prefix: e.target.value })}
-                  placeholder="uploads/"
-                />
-              </Field>
-              <Field label="Force path style" hint="Required for R2, MinIO and most S3-compatibles.">
-                <Switch
-                  checked={form.forcePathStyle}
-                  onCheckedChange={(checked) => setForm({ ...form, forcePathStyle: checked })}
-                />
-              </Field>
-              <Field label="Visibility">
-                <Select
-                  value={form.visibility}
-                  onValueChange={(value) => setForm({ ...form, visibility: value as "public" | "private" })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="public">Public (URL)</SelectItem>
-                    <SelectItem value="private">Private (presigned)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field label="Public base URL" hint="Optional CDN/custom-domain prefix served from the bucket.">
-                <Input
-                  type="url"
-                  value={form.publicBaseUrl}
-                  onChange={(e) => setForm({ ...form, publicBaseUrl: e.target.value })}
-                  placeholder="https://media.example.com"
-                />
-              </Field>
-            </CardContent>
-          </Card>
+          <ActiveStatusCard active={active} />
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Credentials</CardTitle>
-              <CardDescription>
-                Stored encrypted in D1. Leave blank to keep the existing credentials.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-4 sm:grid-cols-2">
-              <Field label="Access key" required={!hasAccessKey}>
-                <Input
-                  value={form.accessKey}
-                  onChange={(e) => setForm({ ...form, accessKey: e.target.value })}
-                  placeholder={hasAccessKey ? "•••••••• (saved)" : "AKIA..."}
-                  autoComplete="off"
-                />
-              </Field>
-              <Field label="Secret key" required={!hasSecretKey}>
-                <Input
-                  type="password"
-                  value={form.secretKey}
-                  onChange={(e) => setForm({ ...form, secretKey: e.target.value })}
-                  placeholder={hasSecretKey ? "•••••••• (saved)" : ""}
-                  autoComplete="off"
-                />
-              </Field>
-            </CardContent>
-          </Card>
+          {configBlock && (
+            <ConfigBlockCard
+              block={configBlock}
+              envStatus={envStatus}
+              configHref={`/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/configuration`}
+            />
+          )}
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Upload limits</CardTitle>
-              <CardDescription>Direct-to-S3 kicks in for files larger than the threshold.</CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-4 sm:grid-cols-2">
-              <Field label="Threshold (MB)" hint="Files at or above this size go straight to the bucket.">
-                <Input
-                  type="number"
-                  min={1}
-                  value={form.thresholdMB}
-                  onChange={(e) => setForm({ ...form, thresholdMB: Number(e.target.value) || 1 })}
-                />
-              </Field>
-              <Field label="Max file size (MB)" hint="-1 for unlimited.">
-                <Input
-                  type="number"
-                  min={-1}
-                  value={form.maxFileMB}
-                  onChange={(e) => setForm({ ...form, maxFileMB: Number(e.target.value) || -1 })}
-                />
-              </Field>
-            </CardContent>
-          </Card>
+          {!showOverride ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Per-project override</CardTitle>
+                <CardDescription>
+                  Save bucket details + encrypted credentials in D1 for this project. Takes precedence over <code className="text-xs px-1 py-0.5 bg-muted rounded">.pages.yml</code> and worker env.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button variant="outline" onClick={() => setShowOverride(true)}>
+                  <ChevronDown className="size-4" /> Configure override
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Bucket</CardTitle>
+                  <CardDescription>Where uploaded media lives.</CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-4 sm:grid-cols-2">
+                  <Field label="Endpoint" required hint="https://<account>.r2.cloudflarestorage.com / https://s3.amazonaws.com / etc.">
+                    <Input
+                      type="url"
+                      value={form.endpoint}
+                      onChange={(e) => setForm({ ...form, endpoint: e.target.value })}
+                      placeholder="https://..."
+                    />
+                  </Field>
+                  <Field label="Region">
+                    <Input
+                      value={form.region}
+                      onChange={(e) => setForm({ ...form, region: e.target.value })}
+                      placeholder="us-east-1"
+                    />
+                  </Field>
+                  <Field label="Bucket" required>
+                    <Input
+                      value={form.bucket}
+                      onChange={(e) => setForm({ ...form, bucket: e.target.value })}
+                      placeholder="my-media-bucket"
+                    />
+                  </Field>
+                  <Field label="Prefix" hint="Object key prefix (folder).">
+                    <Input
+                      value={form.prefix}
+                      onChange={(e) => setForm({ ...form, prefix: e.target.value })}
+                      placeholder="uploads/"
+                    />
+                  </Field>
+                  <Field label="Force path style" hint="Required for R2, MinIO and most S3-compatibles.">
+                    <Switch
+                      checked={form.forcePathStyle}
+                      onCheckedChange={(checked) => setForm({ ...form, forcePathStyle: checked })}
+                    />
+                  </Field>
+                  <Field label="Visibility">
+                    <Select
+                      value={form.visibility}
+                      onValueChange={(value) => setForm({ ...form, visibility: value as "public" | "private" })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="public">Public (URL)</SelectItem>
+                        <SelectItem value="private">Private (presigned)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  <Field label="Public base URL" hint="Optional CDN/custom-domain prefix served from the bucket.">
+                    <Input
+                      type="url"
+                      value={form.publicBaseUrl}
+                      onChange={(e) => setForm({ ...form, publicBaseUrl: e.target.value })}
+                      placeholder="https://media.example.com"
+                    />
+                  </Field>
+                </CardContent>
+              </Card>
 
-          <div className="flex items-center justify-between gap-2 pb-4">
-            {(hasAccessKey || hasSecretKey || source === "d1") ? (
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button variant="outline" disabled={saving}>
-                    <Trash2 className="size-4" /> Clear settings
+              <Card>
+                <CardHeader>
+                  <CardTitle>Credentials</CardTitle>
+                  <CardDescription>
+                    Stored encrypted with AES-GCM in D1. Leave blank to keep the existing credentials.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-4 sm:grid-cols-2">
+                  <Field label="Access key" required={!hasAccessKey}>
+                    <Input
+                      value={form.accessKey}
+                      onChange={(e) => setForm({ ...form, accessKey: e.target.value })}
+                      placeholder={hasAccessKey ? "•••••••• (saved)" : "AKIA..."}
+                      autoComplete="off"
+                    />
+                  </Field>
+                  <Field label="Secret key" required={!hasSecretKey}>
+                    <Input
+                      type="password"
+                      value={form.secretKey}
+                      onChange={(e) => setForm({ ...form, secretKey: e.target.value })}
+                      placeholder={hasSecretKey ? "•••••••• (saved)" : ""}
+                      autoComplete="off"
+                    />
+                  </Field>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Upload limits</CardTitle>
+                  <CardDescription>Direct-to-S3 kicks in for files larger than the threshold.</CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-4 sm:grid-cols-2">
+                  <Field label="Threshold (MB)" hint="Files at or above this size go straight to the bucket.">
+                    <Input
+                      type="number"
+                      min={1}
+                      value={form.thresholdMB}
+                      onChange={(e) => setForm({ ...form, thresholdMB: Number(e.target.value) || 1 })}
+                    />
+                  </Field>
+                  <Field label="Max file size (MB)" hint="-1 for unlimited.">
+                    <Input
+                      type="number"
+                      min={-1}
+                      value={form.maxFileMB}
+                      onChange={(e) => setForm({ ...form, maxFileMB: Number(e.target.value) || -1 })}
+                    />
+                  </Field>
+                </CardContent>
+              </Card>
+
+              <div className="flex items-center justify-between gap-2 pb-4">
+                {source === "d1" ? (
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button variant="outline" disabled={saving}>
+                        <Trash2 className="size-4" /> Clear override
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Clear per-project override?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Removes the D1 row for this project. Storage will fall back to <code>.pages.yml</code> or worker env. Existing uploads in the bucket are unaffected.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleDelete}>Clear</AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                ) : (
+                  <Button variant="ghost" onClick={() => setShowOverride(false)}>
+                    Cancel
                   </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Clear storage settings?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      Removes the bucket configuration and credentials for this project. Existing uploads in the bucket are not affected.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleDelete}>Clear</AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            ) : <span />}
-            <Button onClick={handleSave} disabled={saving}>
-              {saving ? <Loader className="size-4 animate-spin" /> : <Save className="size-4" />}
-              Save
-            </Button>
-          </div>
+                )}
+                <Button onClick={handleSave} disabled={saving}>
+                  {saving ? <Loader className="size-4 animate-spin" /> : <Save className="size-4" />}
+                  Save override
+                </Button>
+              </div>
+            </>
+          )}
         </>
       )}
     </div>
   );
+}
+
+function ActiveStatusCard({ active }: { active: ActiveConfig | null }) {
+  if (!active) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <XCircle className="size-5 text-muted-foreground" /> Storage not configured
+          </CardTitle>
+          <CardDescription>
+            Direct uploads &gt; 25 MB will fail. Add <code className="text-xs px-1 py-0.5 bg-muted rounded">media.storage</code> to your <code className="text-xs px-1 py-0.5 bg-muted rounded">.pages.yml</code>, or save a per-project override below.
+          </CardDescription>
+        </CardHeader>
+      </Card>
+    );
+  }
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <CheckCircle2 className="size-5 text-emerald-600" /> Storage active
+        </CardTitle>
+        <CardDescription>Source: {sourceLabel[active.source]}</CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-2 sm:grid-cols-2 text-sm">
+        <Detail label="Bucket" value={active.bucket} />
+        <Detail label="Endpoint" value={active.endpoint} mono />
+        <Detail label="Region" value={active.region} />
+        <Detail label="Visibility" value={active.visibility} />
+        <Detail label="Threshold" value={`${Math.round(active.thresholdBytes / 1024 / 1024)} MB`} />
+        <Detail label="Max file" value={active.maxFileBytes > 0 ? `${Math.round(active.maxFileBytes / 1024 / 1024)} MB` : "Unlimited"} />
+        {active.publicBaseUrl && <Detail label="Public base URL" value={active.publicBaseUrl} mono />}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ConfigBlockCard({
+  block,
+  envStatus,
+  configHref,
+}: {
+  block: ConfigBlock;
+  envStatus: Record<string, boolean>;
+  configHref: string;
+}) {
+  const envEntries = Object.entries(envStatus);
+  const missing = envEntries.filter(([, set]) => !set).length;
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-start justify-between gap-2">
+        <div>
+          <CardTitle>From .pages.yml</CardTitle>
+          <CardDescription>
+            <code className="text-xs px-1 py-0.5 bg-muted rounded">media.storage</code> block, with <code className="text-xs px-1 py-0.5 bg-muted rounded">${"{}"}</code> placeholders resolved against worker env at upload time.
+          </CardDescription>
+        </div>
+        <Button asChild variant="ghost" size="sm">
+          <Link href={configHref}>
+            Edit <ExternalLink className="size-3.5" />
+          </Link>
+        </Button>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <pre className="text-xs bg-muted p-3 rounded overflow-x-auto">
+          <code>{renderYaml(block)}</code>
+        </pre>
+        {envEntries.length > 0 && (
+          <div className="space-y-2">
+            <div className="text-sm font-medium">
+              Worker secrets {missing > 0 ? <span className="text-destructive">({missing} missing)</span> : <span className="text-emerald-600">(all set)</span>}
+            </div>
+            <ul className="grid gap-1.5 sm:grid-cols-2">
+              {envEntries.map(([name, set]) => (
+                <li key={name} className="flex items-center gap-2 text-sm">
+                  {set
+                    ? <CheckCircle2 className="size-4 text-emerald-600 shrink-0" />
+                    : <XCircle className="size-4 text-destructive shrink-0" />}
+                  <code className="text-xs px-1 py-0.5 bg-muted rounded truncate">{name}</code>
+                </li>
+              ))}
+            </ul>
+            {missing > 0 && (
+              <p className="text-xs text-muted-foreground">
+                Missing secrets must be added with <code className="text-xs px-1 py-0.5 bg-muted rounded">npx wrangler secret put NAME</code> and a redeploy.
+              </p>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function Detail({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="flex flex-col gap-0.5 min-w-0">
+      <span className="text-xs uppercase tracking-wide text-muted-foreground">{label}</span>
+      <span className={cn("truncate", mono && "font-mono text-xs")}>{value}</span>
+    </div>
+  );
+}
+
+function renderYaml(block: ConfigBlock): string {
+  const order: (keyof ConfigBlock)[] = [
+    "provider", "bucket", "accountId", "endpoint", "region",
+    "accessKeyId", "secretAccessKey", "publicUrl", "prefix",
+    "visibility", "forcePathStyle", "thresholdBytes", "maxFileBytes",
+  ];
+  const lines: string[] = ["media:", "  storage:"];
+  for (const key of order) {
+    const value = block[key];
+    if (value === undefined || value === null || value === "") continue;
+    lines.push(`    ${key}: ${value}`);
+  }
+  return lines.join("\n");
 }
 
 function Field({
