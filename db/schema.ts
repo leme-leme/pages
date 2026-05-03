@@ -320,10 +320,6 @@ const projectAnalyticsConfigTable = sqliteTable("project_analytics_config", {
   branch: text("branch").notNull().default(""),
   // Google Analytics 4 measurement ID (G-XXXXXXX).
   ga4MeasurementId: text("ga4_measurement_id"),
-  // Plausible: site domain registered in plausible (e.g. "example.com").
-  plausibleDomain: text("plausible_domain"),
-  // Plausible self-hosted base URL (defaults to https://plausible.io).
-  plausibleApiHost: text("plausible_api_host"),
   // Cloudflare Web Analytics beacon token (the "token" attr on their script).
   cfBeaconToken: text("cf_beacon_token"),
   // When true, the snippet emits a small consent banner and only loads the

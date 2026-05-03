@@ -37,14 +37,12 @@ export async function GET(
   const row = (await findRow(params.owner, params.repo, params.branch))
     ?? (await findRow(params.owner, params.repo, ""));
 
-  if (!row || (!row.ga4MeasurementId && !row.plausibleDomain && !row.cfBeaconToken)) {
+  if (!row || (!row.ga4MeasurementId && !row.cfBeaconToken)) {
     return new Response(noop, { headers: baseHeaders(60) });
   }
 
   const script = generateSiteAnalyticsScript({
     ga4MeasurementId: row.ga4MeasurementId,
-    plausibleDomain: row.plausibleDomain,
-    plausibleApiHost: row.plausibleApiHost,
     cfBeaconToken: row.cfBeaconToken,
     requireConsent: !!row.requireConsent,
     honorDnt: !!row.honorDnt,

@@ -10,8 +10,6 @@ import { createHttpError, toErrorResponse } from "@/lib/api-error";
 
 const writeSchema = z.object({
   ga4MeasurementId: z.string().regex(/^G-[A-Z0-9]+$/i).optional().nullable(),
-  plausibleDomain: z.string().min(1).optional().nullable(),
-  plausibleApiHost: z.string().url().optional().nullable(),
   cfBeaconToken: z.string().regex(/^[a-f0-9]{32}$/i).optional().nullable(),
   requireConsent: z.boolean().default(true),
   honorDnt: z.boolean().default(true),
@@ -46,8 +44,6 @@ export async function GET(
       status: "success",
       data: row ? {
         ga4MeasurementId: row.ga4MeasurementId,
-        plausibleDomain: row.plausibleDomain,
-        plausibleApiHost: row.plausibleApiHost,
         cfBeaconToken: row.cfBeaconToken,
         requireConsent: !!row.requireConsent,
         honorDnt: !!row.honorDnt,
@@ -82,8 +78,6 @@ export async function PUT(
       await db.update(projectAnalyticsConfigTable)
         .set({
           ga4MeasurementId: parsed.data.ga4MeasurementId ?? null,
-          plausibleDomain: parsed.data.plausibleDomain ?? null,
-          plausibleApiHost: parsed.data.plausibleApiHost ?? null,
           cfBeaconToken: parsed.data.cfBeaconToken ?? null,
           requireConsent: parsed.data.requireConsent,
           honorDnt: parsed.data.honorDnt,
@@ -96,8 +90,6 @@ export async function PUT(
         repo: lowerRepo,
         branch,
         ga4MeasurementId: parsed.data.ga4MeasurementId ?? null,
-        plausibleDomain: parsed.data.plausibleDomain ?? null,
-        plausibleApiHost: parsed.data.plausibleApiHost ?? null,
         cfBeaconToken: parsed.data.cfBeaconToken ?? null,
         requireConsent: parsed.data.requireConsent,
         honorDnt: parsed.data.honorDnt,
@@ -114,7 +106,6 @@ export async function PUT(
       branch: branch || params.branch,
       after: {
         ga4: !!parsed.data.ga4MeasurementId,
-        plausible: !!parsed.data.plausibleDomain,
         cf: !!parsed.data.cfBeaconToken,
         requireConsent: parsed.data.requireConsent,
       },

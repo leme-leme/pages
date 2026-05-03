@@ -847,11 +847,6 @@ const ConfigSchema = z
             message: "'ga4MeasurementId' must look like 'G-XXXX'.",
           })
           .optional(),
-        plausibleDomain: z.string().min(1).optional(),
-        plausibleApiHost: z
-          .string()
-          .url({ message: "'plausibleApiHost' must be a URL." })
-          .optional(),
         cfBeaconToken: z
           .string()
           .regex(/^[a-f0-9]{32}$/i, {

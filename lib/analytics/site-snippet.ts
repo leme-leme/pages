@@ -9,13 +9,10 @@
 //   2. Shows a minimal consent banner if `requireConsent` is on, and only
 //      injects provider tags after the user accepts (decision stored in
 //      localStorage `pcms.consent`).
-//   3. Injects GA4 / Plausible / Cloudflare Web Analytics tags as
-//      configured.
+//   3. Injects GA4 / Cloudflare Web Analytics tags as configured.
 
 export type SiteAnalyticsConfig = {
   ga4MeasurementId: string | null;
-  plausibleDomain: string | null;
-  plausibleApiHost: string | null;
   cfBeaconToken: string | null;
   requireConsent: boolean;
   honorDnt: boolean;
@@ -28,8 +25,6 @@ const json = (value: unknown): string => JSON.stringify(value);
 
 export function generateSiteAnalyticsScript(config: SiteAnalyticsConfig): string {
   const ga4 = config.ga4MeasurementId ? escape(config.ga4MeasurementId) : null;
-  const plausibleDomain = config.plausibleDomain ? escape(config.plausibleDomain) : null;
-  const plausibleHost = config.plausibleApiHost ? escape(config.plausibleApiHost) : "https://plausible.io";
   const cfToken = config.cfBeaconToken ? escape(config.cfBeaconToken) : null;
 
   // The runtime is intentionally tiny: no framework, no bundler, no Promise
@@ -37,8 +32,6 @@ export function generateSiteAnalyticsScript(config: SiteAnalyticsConfig): string
   return `(function(){
   var providers = {
     ga4: ${ga4 ? `"${ga4}"` : "null"},
-    plausibleDomain: ${plausibleDomain ? `"${plausibleDomain}"` : "null"},
-    plausibleHost: "${plausibleHost}",
     cfBeaconToken: ${cfToken ? `"${cfToken}"` : "null"}
   };
   var requireConsent = ${json(!!config.requireConsent)};
@@ -57,13 +50,6 @@ export function generateSiteAnalyticsScript(config: SiteAnalyticsConfig): string
       window.gtag = window.gtag || function(){ window.dataLayer.push(arguments); };
       window.gtag("js", new Date());
       window.gtag("config", providers.ga4, { anonymize_ip: true });
-    }
-    if (providers.plausibleDomain){
-      var p = document.createElement("script");
-      p.defer = true;
-      p.setAttribute("data-domain", providers.plausibleDomain);
-      p.src = providers.plausibleHost.replace(/\\/$/, "") + "/js/script.js";
-      document.head.appendChild(p);
     }
     if (providers.cfBeaconToken){
       var c = document.createElement("script");

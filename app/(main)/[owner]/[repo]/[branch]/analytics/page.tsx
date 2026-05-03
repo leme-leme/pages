@@ -24,8 +24,6 @@ type Interval = "1d" | "7d" | "30d" | "90d";
 
 type SiteAnalyticsConfig = {
   ga4MeasurementId: string | null;
-  plausibleDomain: string | null;
-  plausibleApiHost: string | null;
   cfBeaconToken: string | null;
   requireConsent: boolean;
   honorDnt: boolean;
@@ -33,32 +31,27 @@ type SiteAnalyticsConfig = {
 
 const empty: SiteAnalyticsConfig = {
   ga4MeasurementId: null,
-  plausibleDomain: null,
-  plausibleApiHost: null,
   cfBeaconToken: null,
   requireConsent: true,
   honorDnt: true,
 };
 
-type Provider = "none" | "ga4" | "cloudflare" | "plausible";
+type Provider = "none" | "ga4" | "cloudflare";
 
 const providerMeta: Record<Exclude<Provider, "none">, { label: string; placeholder: string }> = {
   ga4: { label: "Measurement ID", placeholder: "G-XXXXXXX" },
   cloudflare: { label: "Beacon token", placeholder: "32 hex chars" },
-  plausible: { label: "Site domain", placeholder: "example.com" },
 };
 
 const detectProvider = (cfg: SiteAnalyticsConfig): Provider => {
   if (cfg.ga4MeasurementId) return "ga4";
   if (cfg.cfBeaconToken) return "cloudflare";
-  if (cfg.plausibleDomain) return "plausible";
   return "none";
 };
 
 const identifierFor = (provider: Provider, cfg: SiteAnalyticsConfig): string => {
   if (provider === "ga4") return cfg.ga4MeasurementId ?? "";
   if (provider === "cloudflare") return cfg.cfBeaconToken ?? "";
-  if (provider === "plausible") return cfg.plausibleDomain ?? "";
   return "";
 };
 
@@ -70,8 +63,6 @@ const cfgWithProvider = (
   ...base,
   ga4MeasurementId: provider === "ga4" ? (identifier || null) : null,
   cfBeaconToken: provider === "cloudflare" ? (identifier || null) : null,
-  plausibleDomain: provider === "plausible" ? (identifier || null) : null,
-  plausibleApiHost: provider === "plausible" ? base.plausibleApiHost : null,
 });
 
 type DeployStats = {
@@ -542,7 +533,6 @@ export default function Page() {
                   <SelectItem value="none">None</SelectItem>
                   <SelectItem value="ga4">Google Analytics 4</SelectItem>
                   <SelectItem value="cloudflare">Cloudflare Web Analytics</SelectItem>
-                  <SelectItem value="plausible">Plausible</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -555,18 +545,6 @@ export default function Page() {
                   value={identifier}
                   disabled={loading}
                   onChange={(e) => setIdentifier(e.target.value)}
-                />
-              </div>
-            )}
-            {provider === "plausible" && (
-              <div className="space-y-1">
-                <Label htmlFor="plausible-host">API host (self-hosted only)</Label>
-                <Input
-                  id="plausible-host"
-                  placeholder="https://plausible.io"
-                  value={cfg.plausibleApiHost ?? ""}
-                  disabled={loading}
-                  onChange={(e) => setCfg((c) => ({ ...c, plausibleApiHost: e.target.value || null }))}
                 />
               </div>
             )}
