@@ -268,7 +268,7 @@ export default function Page() {
       <div className="flex flex-col gap-1">
         <h1 className="text-xl font-semibold">Storage</h1>
         <p className="text-sm text-muted-foreground">
-          S3-compatible bucket (R2, MinIO, Backblaze B2, AWS S3) used for direct media uploads. Resolution order:
+          S3-compatible bucket used for direct media uploads. Resolution order:
           per-project override → <code className="text-xs px-1 py-0.5 bg-muted rounded">media.storage</code> in <code className="text-xs px-1 py-0.5 bg-muted rounded">.pages.yml</code> → worker env.
         </p>
       </div>
@@ -340,7 +340,7 @@ export default function Page() {
                       placeholder="uploads/"
                     />
                   </Field>
-                  <Field label="Force path style" hint="Required for R2, MinIO and most S3-compatibles.">
+                  <Field label="Force path style" hint="Required for most non-AWS S3-compatible providers.">
                     <Switch
                       checked={form.forcePathStyle}
                       onCheckedChange={(checked) => setForm({ ...form, forcePathStyle: checked })}
