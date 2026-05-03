@@ -88,7 +88,7 @@ const DEFAULT_FORM = {
   forcePathStyle: true,
   visibility: "public" as "public" | "private",
   thresholdMB: 25,
-  maxFileMB: -1,
+  maxFileMB: "" as string,
   publicBaseUrl: "",
 };
 
@@ -139,7 +139,7 @@ export default function Page() {
             forcePathStyle: cfg.forcePathStyle,
             visibility: cfg.visibility,
             thresholdMB: cfg.thresholdBytes ? Math.round(cfg.thresholdBytes / 1024 / 1024) : 25,
-            maxFileMB: cfg.maxFileBytes && cfg.maxFileBytes > 0 ? Math.round(cfg.maxFileBytes / 1024 / 1024) : -1,
+            maxFileMB: cfg.maxFileBytes && cfg.maxFileBytes > 0 ? String(Math.round(cfg.maxFileBytes / 1024 / 1024)) : "",
             publicBaseUrl: cfg.publicBaseUrl ?? "",
           });
         } else {
@@ -194,7 +194,9 @@ export default function Page() {
         forcePathStyle: form.forcePathStyle,
         visibility: form.visibility,
         thresholdBytes: Math.max(1, form.thresholdMB) * 1024 * 1024,
-        maxFileBytes: form.maxFileMB > 0 ? form.maxFileMB * 1024 * 1024 : -1,
+        maxFileBytes: form.maxFileMB && Number(form.maxFileMB) > 0
+          ? Number(form.maxFileMB) * 1024 * 1024
+          : -1,
         publicBaseUrl: form.publicBaseUrl || null,
       };
       if (form.accessKey) body.accessKey = form.accessKey;
@@ -393,12 +395,13 @@ export default function Page() {
                           onChange={(e) => setForm({ ...form, thresholdMB: Number(e.target.value) || 1 })}
                         />
                       </Field>
-                      <Field label="Max file size (MB)" hint="-1 for unlimited.">
+                      <Field label="Max file size (MB)" hint="Leave blank for no limit.">
                         <Input
                           type="number"
-                          min={-1}
+                          min={1}
                           value={form.maxFileMB}
-                          onChange={(e) => setForm({ ...form, maxFileMB: Number(e.target.value) || -1 })}
+                          onChange={(e) => setForm({ ...form, maxFileMB: e.target.value })}
+                          placeholder="No limit"
                         />
                       </Field>
                       <Field label="Force path style" hint="Required for most non-AWS providers.">
