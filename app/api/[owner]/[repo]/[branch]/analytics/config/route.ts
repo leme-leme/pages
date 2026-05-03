@@ -7,6 +7,7 @@ import { requireApiUserSession } from "@/lib/session-server";
 import { requirePermission } from "@/lib/authz-server";
 import { recordAuditEvent } from "@/lib/audit";
 import { createHttpError, toErrorResponse } from "@/lib/api-error";
+import { resolveAnalyticsConfig } from "@/lib/analytics/resolve-config";
 
 const writeSchema = z.object({
   ga4MeasurementId: z.string().regex(/^G-[A-Z0-9]+$/i).optional().nullable(),
@@ -37,16 +38,16 @@ export async function GET(
 
     await requirePermission(user, params.owner, params.repo, "admin", undefined, params.branch);
 
-    const row = (await findRow(params.owner, params.repo, params.branch))
-      ?? (await findRow(params.owner, params.repo, ""));
+    const resolved = await resolveAnalyticsConfig(params.owner, params.repo, params.branch);
 
     return Response.json({
       status: "success",
-      data: row ? {
-        ga4MeasurementId: row.ga4MeasurementId,
-        cfBeaconToken: row.cfBeaconToken,
-        requireConsent: !!row.requireConsent,
-        honorDnt: !!row.honorDnt,
+      data: resolved ? {
+        ga4MeasurementId: resolved.ga4MeasurementId,
+        cfBeaconToken: resolved.cfBeaconToken,
+        requireConsent: resolved.requireConsent,
+        honorDnt: resolved.honorDnt,
+        source: resolved.source,
       } : null,
     });
   } catch (error) {

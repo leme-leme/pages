@@ -1,8 +1,6 @@
 import { type NextRequest } from "next/server";
-import { and, eq, sql } from "drizzle-orm";
-import { db } from "@/db";
-import { projectAnalyticsConfigTable } from "@/db/schema";
 import { generateSiteAnalyticsScript } from "@/lib/analytics/site-snippet";
+import { resolveAnalyticsConfig } from "@/lib/analytics/resolve-config";
 
 // Public endpoint. The deployed site embeds:
 //   <script src="https://<cms>/api/<owner>/<repo>/<branch>/analytics/snippet.js" async></script>
@@ -10,15 +8,6 @@ import { generateSiteAnalyticsScript } from "@/lib/analytics/site-snippet";
 // configured.
 
 const ALLOW_ORIGIN = "*";
-
-const findRow = (owner: string, repo: string, branch: string) =>
-  db.query.projectAnalyticsConfigTable.findFirst({
-    where: and(
-      sql`lower(${projectAnalyticsConfigTable.owner}) = ${owner.toLowerCase()}`,
-      sql`lower(${projectAnalyticsConfigTable.repo}) = ${repo.toLowerCase()}`,
-      eq(projectAnalyticsConfigTable.branch, branch),
-    ),
-  });
 
 const noop = "/* pages-cms analytics: no providers configured */";
 
@@ -34,18 +23,15 @@ export async function GET(
   context: { params: Promise<{ owner: string; repo: string; branch: string }> },
 ) {
   const params = await context.params;
-  const row = (await findRow(params.owner, params.repo, params.branch))
-    ?? (await findRow(params.owner, params.repo, ""));
+  const cfg = await resolveAnalyticsConfig(params.owner, params.repo, params.branch);
 
-  if (!row || (!row.ga4MeasurementId && !row.cfBeaconToken)) {
-    return new Response(noop, { headers: baseHeaders(60) });
-  }
+  if (!cfg) return new Response(noop, { headers: baseHeaders(60) });
 
   const script = generateSiteAnalyticsScript({
-    ga4MeasurementId: row.ga4MeasurementId,
-    cfBeaconToken: row.cfBeaconToken,
-    requireConsent: !!row.requireConsent,
-    honorDnt: !!row.honorDnt,
+    ga4MeasurementId: cfg.ga4MeasurementId,
+    cfBeaconToken: cfg.cfBeaconToken,
+    requireConsent: cfg.requireConsent,
+    honorDnt: cfg.honorDnt,
   });
 
   return new Response(script, { headers: baseHeaders(300) });
