@@ -52,7 +52,7 @@ const fromD1 = async (
   };
 };
 
-type AnalyticsBlock = {
+export type AnalyticsBlock = {
   ga4MeasurementId?: string;
   cfBeaconToken?: string;
   requireConsent?: boolean;
@@ -63,6 +63,25 @@ export const findAnalyticsBlockInConfig = (configObject: any): AnalyticsBlock | 
   const block = configObject?.analytics;
   if (!block || typeof block !== "object") return null;
   return block as AnalyticsBlock;
+};
+
+export const collectAnalyticsEnvVarRefs = (block: AnalyticsBlock | null | undefined): string[] => {
+  if (!block) return [];
+  const seen = new Set<string>();
+  for (const key of ["ga4MeasurementId", "cfBeaconToken"] as const) {
+    const value = block[key];
+    if (typeof value !== "string") continue;
+    const match = ENV_PLACEHOLDER.exec(value.trim());
+    if (match) seen.add(match[1]);
+  }
+  return Array.from(seen);
+};
+
+export const checkAnalyticsEnvVarsPresent = (names: string[]): Record<string, boolean> => {
+  const e = env as unknown as Record<string, string | undefined>;
+  const out: Record<string, boolean> = {};
+  for (const name of names) out[name] = !!e[name];
+  return out;
 };
 
 const fromConfig = async (

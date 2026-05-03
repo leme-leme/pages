@@ -16,6 +16,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import Link from "next/link";
+import { CheckCircle2, ExternalLink, XCircle } from "lucide-react";
 import { BarChart, DayBars, Sparkline } from "@/components/charts/sparkline";
 import { toast } from "sonner";
 import { requireApiSuccess } from "@/lib/api-client";
@@ -27,6 +29,13 @@ type SiteAnalyticsConfig = {
   cfBeaconToken: string | null;
   requireConsent: boolean;
   honorDnt: boolean;
+};
+
+type AnalyticsBlock = {
+  ga4MeasurementId?: string;
+  cfBeaconToken?: string;
+  requireConsent?: boolean;
+  honorDnt?: boolean;
 };
 
 const empty: SiteAnalyticsConfig = {
@@ -115,6 +124,9 @@ export default function Page() {
   const [cfg, setCfg] = useState<SiteAnalyticsConfig>(empty);
   const [provider, setProvider] = useState<Provider>("none");
   const [identifier, setIdentifier] = useState<string>("");
+  const [activeSource, setActiveSource] = useState<"d1" | "config" | null>(null);
+  const [configBlock, setConfigBlock] = useState<AnalyticsBlock | null>(null);
+  const [envStatus, setEnvStatus] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
@@ -137,13 +149,17 @@ export default function Page() {
     (async () => {
       try {
         const res = await fetch(`${apiBase}/config`);
-        const data = await requireApiSuccess<{ data: SiteAnalyticsConfig | null }>(res, "Failed to load config");
+        const result = await requireApiSuccess<{ data: { active: (SiteAnalyticsConfig & { source: "d1" | "config" }) | null; configBlock: AnalyticsBlock | null; envStatus: Record<string, boolean> } | null }>(res, "Failed to load config");
         if (!abort) {
-          const next = data.data ?? empty;
+          const data = result.data ?? { active: null, configBlock: null, envStatus: {} };
+          const next = data.active ?? empty;
           const detected = detectProvider(next);
           setCfg(next);
           setProvider(detected);
           setIdentifier(identifierFor(detected, next));
+          setActiveSource(data.active?.source ?? null);
+          setConfigBlock(data.configBlock);
+          setEnvStatus(data.envStatus ?? {});
         }
       } catch (error) {
         if (!abort) toast.error(error instanceof Error ? error.message : "Failed to load config");
@@ -496,6 +512,15 @@ export default function Page() {
         </CardContent>
       </Card>
 
+      {configBlock && (
+        <ConfigBlockCard
+          block={configBlock}
+          envStatus={envStatus}
+          configHref={`/${owner}/${repo}/${encodeURIComponent(branch)}/configuration`}
+          activeSource={activeSource}
+        />
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle>Site analytics injection</CardTitle>
@@ -572,4 +597,79 @@ export default function Page() {
       </Card>
     </div>
   );
+}
+
+function ConfigBlockCard({
+  block,
+  envStatus,
+  configHref,
+  activeSource,
+}: {
+  block: AnalyticsBlock;
+  envStatus: Record<string, boolean>;
+  configHref: string;
+  activeSource: "d1" | "config" | null;
+}) {
+  const envEntries = Object.entries(envStatus);
+  const missing = envEntries.filter(([, set]) => !set).length;
+  const overridden = activeSource === "d1";
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-start justify-between gap-2">
+        <div>
+          <CardTitle>From .pages.yml</CardTitle>
+          <CardDescription>
+            <code className="text-xs px-1 py-0.5 bg-muted rounded">analytics</code> block, with <code className="text-xs px-1 py-0.5 bg-muted rounded">${"{}"}</code> placeholders resolved against worker env at request time.
+            {overridden && <> Currently overridden by per-project save below.</>}
+          </CardDescription>
+        </div>
+        <Button asChild variant="ghost" size="sm">
+          <Link href={configHref}>
+            Edit <ExternalLink className="size-3.5" />
+          </Link>
+        </Button>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <pre className="text-xs bg-muted p-3 rounded overflow-x-auto">
+          <code>{renderAnalyticsYaml(block)}</code>
+        </pre>
+        {envEntries.length > 0 && (
+          <div className="space-y-2">
+            <div className="text-sm font-medium">
+              Worker secrets {missing > 0 ? <span className="text-destructive">({missing} missing)</span> : <span className="text-emerald-600">(all set)</span>}
+            </div>
+            <ul className="grid gap-1.5 sm:grid-cols-2">
+              {envEntries.map(([name, set]) => (
+                <li key={name} className="flex items-center gap-2 text-sm">
+                  {set
+                    ? <CheckCircle2 className="size-4 text-emerald-600 shrink-0" />
+                    : <XCircle className="size-4 text-destructive shrink-0" />}
+                  <code className="text-xs px-1 py-0.5 bg-muted rounded truncate">{name}</code>
+                </li>
+              ))}
+            </ul>
+            {missing > 0 && (
+              <p className="text-xs text-muted-foreground">
+                Add with <code className="text-xs px-1 py-0.5 bg-muted rounded">npx wrangler secret put NAME</code> (will redeploy automatically).
+              </p>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function renderAnalyticsYaml(block: AnalyticsBlock): string {
+  const order: (keyof AnalyticsBlock)[] = [
+    "ga4MeasurementId", "cfBeaconToken", "requireConsent", "honorDnt",
+  ];
+  const lines: string[] = ["analytics:"];
+  for (const key of order) {
+    const value = block[key];
+    if (value === undefined || value === null || value === "") continue;
+    lines.push(`  ${key}: ${value}`);
+  }
+  return lines.join("\n");
 }

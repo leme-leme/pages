@@ -7,7 +7,13 @@ import { requireApiUserSession } from "@/lib/session-server";
 import { requirePermission } from "@/lib/authz-server";
 import { recordAuditEvent } from "@/lib/audit";
 import { createHttpError, toErrorResponse } from "@/lib/api-error";
-import { resolveAnalyticsConfig } from "@/lib/analytics/resolve-config";
+import {
+  checkAnalyticsEnvVarsPresent,
+  collectAnalyticsEnvVarRefs,
+  findAnalyticsBlockInConfig,
+  resolveAnalyticsConfig,
+} from "@/lib/analytics/resolve-config";
+import { getCachedConfig } from "@/lib/config-store";
 
 const writeSchema = z.object({
   ga4MeasurementId: z.string().regex(/^G-[A-Z0-9]+$/i).optional().nullable(),
@@ -38,17 +44,27 @@ export async function GET(
 
     await requirePermission(user, params.owner, params.repo, "admin", undefined, params.branch);
 
-    const resolved = await resolveAnalyticsConfig(params.owner, params.repo, params.branch);
+    const [resolved, cached] = await Promise.all([
+      resolveAnalyticsConfig(params.owner, params.repo, params.branch),
+      getCachedConfig(params.owner, params.repo, params.branch).catch(() => null),
+    ]);
+    const configBlock = findAnalyticsBlockInConfig(cached?.object);
+    const envVars = collectAnalyticsEnvVarRefs(configBlock);
+    const envStatus = checkAnalyticsEnvVarsPresent(envVars);
 
     return Response.json({
       status: "success",
-      data: resolved ? {
-        ga4MeasurementId: resolved.ga4MeasurementId,
-        cfBeaconToken: resolved.cfBeaconToken,
-        requireConsent: resolved.requireConsent,
-        honorDnt: resolved.honorDnt,
-        source: resolved.source,
-      } : null,
+      data: {
+        active: resolved ? {
+          ga4MeasurementId: resolved.ga4MeasurementId,
+          cfBeaconToken: resolved.cfBeaconToken,
+          requireConsent: resolved.requireConsent,
+          honorDnt: resolved.honorDnt,
+          source: resolved.source,
+        } : null,
+        configBlock: configBlock ?? null,
+        envStatus,
+      },
     });
   } catch (error) {
     return toErrorResponse(error, { route: "/analytics/config" });
