@@ -34,7 +34,7 @@ export default function Page({
       <DocumentTitle
         title={formatRepoBranchTitle(`Edit ${filename} | ${schema.label || schema.name}`, config.owner, config.repo, config.branch)}
       />
-      <Entry name={schemaName} path={decodedPath}/>
+      <Entry key={`${schemaName}:${decodedPath}`} name={schemaName} path={decodedPath}/>
     </>
   );
 }
