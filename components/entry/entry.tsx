@@ -50,6 +50,13 @@ import { LocaleProvider } from "@/contexts/locale-context";
 import { LocaleSwitcher } from "@/components/locale-switcher";
 import { getCollectionI18n, getI18nConfig, getLocalizedPath } from "@/lib/i18n";
 import {
+  loadLocalizedEntry,
+  buildI18nSaveRequest,
+  postBatch,
+  type LoadedLocalizedEntry,
+} from "@/lib/i18n-save";
+import type { ValuesByLocale } from "@/lib/i18n-entry";
+import {
   Breadcrumb,
   BreadcrumbEllipsis,
   BreadcrumbItem,
@@ -135,6 +142,15 @@ export function Entry({
     if (!path || !localeList || activeLocale === defaultLocale) return path;
     return getLocalizedPath(path, activeLocale, config);
   }, [activeLocale, config, defaultLocale, localeList, path]);
+
+  // i18n entries load/save every locale through the localized model + batch
+  // endpoint, instead of the single-file path used for non-i18n content.
+  const i18nActive = useMemo(
+    () => !!localeList && schemaType === "collection" && path !== ".pages.yml" && initialPath !== ".pages.yml",
+    [initialPath, localeList, path, schemaType],
+  );
+  const [valuesByLocale, setValuesByLocale] = useState<ValuesByLocale | null>(null);
+  const shaByLocaleRef = useRef<Record<string, string | undefined>>({});
   const operations = useMemo(
     () =>
       resolveContentOperations({
@@ -193,15 +209,18 @@ export function Entry({
         : schema.fields;
   }, [schema, entry, path, showFilenameField]);
 
+  const loadedContentObject = i18nActive
+    ? valuesByLocale?.[activeLocale]
+    : entry?.contentObject;
   const entryContentObject = useMemo(() => {
     return path
       ? schema?.list === true
-        ? { listWrapper: entry?.contentObject }
-        : entry?.contentObject
+        ? { listWrapper: loadedContentObject }
+        : loadedContentObject
       : schema?.list === true
         ? { listWrapper: [] }
         : {};
-  }, [schema, entry, path]);
+  }, [schema, loadedContentObject, path]);
 
   useEffect(() => {
     if (!showFilenameField || schemaType !== "collection" || !schema) return;
@@ -218,10 +237,10 @@ export function Entry({
   }, [entryContentObject, path, schema, schemaType, showFilenameField]);
 
   const entryApiUrl = useMemo(() => (
-    effectivePath
+    effectivePath && !i18nActive
       ? `/api/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/entries/${encodeURIComponent(effectivePath)}?name=${encodeURIComponent(name)}`
       : null
-  ), [config.branch, config.owner, config.repo, name, effectivePath]);
+  ), [config.branch, config.owner, config.repo, name, effectivePath, i18nActive]);
 
   const fetchEntryByUrl = useCallback(async (apiUrl: string): Promise<EntryData> => {
     const response = await fetch(apiUrl);
@@ -248,9 +267,73 @@ export function Entry({
   );
 
   useEffect(() => {
-    if (!path) return;
+    if (!path || i18nActive) return;
     setIsLoading(swrEntryLoading);
-  }, [path, swrEntryLoading]);
+  }, [path, swrEntryLoading, i18nActive]);
+
+  // Localized load: fetch every locale of the entry into valuesByLocale.
+  const i18nLoadKey = i18nActive && path
+    ? (["i18n-entry", config.owner, config.repo, config.branch, name, path, (localeList ?? []).join(",")] as const)
+    : null;
+  const loadI18n = useCallback(async (): Promise<LoadedLocalizedEntry | null> => {
+    if (!path || !schema) return null;
+    return loadLocalizedEntry({
+      config,
+      schema: {
+        name,
+        fields: schema.fields,
+        format: (schema as any).format,
+        delimiters: (schema as any).delimiters,
+      },
+      canonicalPath: path,
+    });
+  }, [config, name, path, schema]);
+  const {
+    data: i18nData,
+    error: i18nError,
+    isLoading: i18nLoading,
+  } = useSWR<LoadedLocalizedEntry | null>(i18nLoadKey, loadI18n, {
+    revalidateOnFocus: false,
+    dedupingInterval: 2000,
+  });
+
+  useEffect(() => {
+    if (!i18nActive) return;
+    setIsLoading(i18nLoading);
+  }, [i18nActive, i18nLoading]);
+
+  useEffect(() => {
+    if (!i18nActive || !i18nData || !path) return;
+    setValuesByLocale(i18nData.valuesByLocale);
+    shaByLocaleRef.current = i18nData.shaByLocale;
+    setHasRegisteredChanges(false);
+    setIsLoading(false);
+    setError(null);
+    const def = i18nData.valuesByLocale[defaultLocale] ?? {};
+    setEntry({
+      sha: i18nData.shaByLocale[defaultLocale] ?? "",
+      name: getFileName(normalizePath(path)),
+      path,
+      contentObject: def,
+    });
+    if (schema && schema.type === "collection") {
+      const primaryField = getPrimaryField(schema);
+      const primaryValue = primaryField ? safeAccess(def, primaryField) : undefined;
+      const hasPrimary = typeof primaryValue === "string" ? primaryValue !== "" : primaryValue != null;
+      setDisplayTitle(`Editing "${hasPrimary ? String(primaryValue) : getFileName(normalizePath(path))}"`);
+    }
+  }, [i18nActive, i18nData, defaultLocale, path, schema]);
+
+  useEffect(() => {
+    if (!i18nActive || !valuesByLocale) return;
+    setSha(shaByLocaleRef.current[activeLocale] ?? shaByLocaleRef.current[defaultLocale]);
+  }, [activeLocale, defaultLocale, i18nActive, valuesByLocale]);
+
+  useEffect(() => {
+    if (!i18nActive || !i18nError) return;
+    setError(i18nError instanceof Error ? i18nError.message : "Failed to fetch entry.");
+    setIsLoading(false);
+  }, [i18nActive, i18nError]);
 
   useEffect(() => {
     if (!swrEntryData || !path) return;
@@ -328,6 +411,80 @@ export function Entry({
 
     const savePromise = new Promise<ApiSuccess<EntryData>>(async (resolve, reject) => {
       try {
+        if (i18nActive) {
+          const formObject = (schema?.list === true
+            ? (contentObject as any).listWrapper
+            : contentObject) as Record<string, any>;
+          const trimmedFilename = filenameValue.trim();
+          const normalizedFilename = normalizePath(trimmedFilename).split("/").pop() || "";
+          if (showFilenameField && !normalizedFilename) throw new Error("Filename is required.");
+
+          let targetCanonical = path;
+          let previousCanonical: string | undefined;
+          if (!targetCanonical) {
+            if (!schema) throw new Error("Cannot create entry without schema.");
+            if (!canCreate) throw new Error("Creating entries in this content item isn't allowed.");
+            const basePath = parent ?? schema.path;
+            if (basePath == null) throw new Error("Cannot create entry without a target path.");
+            const generatedFilename = showFilenameField
+              ? normalizedFilename
+              : generateFilename(schema.filename, schema, formObject);
+            targetCanonical = joinPathSegments([basePath, generatedFilename]);
+          } else if (filenameChanged) {
+            if (activeLocale !== defaultLocale) throw new Error("Switch to the default locale to rename this entry.");
+            if (!canRename) throw new Error("Renaming this entry isn't allowed.");
+            previousCanonical = path;
+            targetCanonical = joinPathSegments([getParentPath(path), normalizedFilename]);
+          }
+
+          const mergedValues: ValuesByLocale = { ...(valuesByLocale ?? {}), [activeLocale]: formObject };
+          if (!mergedValues[defaultLocale]) mergedValues[defaultLocale] = mergedValues[activeLocale];
+
+          const result = await postBatch(
+            config,
+            buildI18nSaveRequest({
+              config,
+              schema: {
+                name,
+                fields: schema?.fields,
+                format: (schema as any)?.format,
+                delimiters: (schema as any)?.delimiters,
+              },
+              valuesByLocale: mergedValues,
+              canonicalPath: targetCanonical!,
+              previousCanonicalPath: previousCanonical,
+            }),
+          );
+
+          setValuesByLocale(mergedValues);
+          if (result.sha) setSha(result.sha);
+          if (submitStartChangeVersion === changeVersionRef.current) setHasRegisteredChanges(false);
+
+          const collectionKeyPrefix = `/api/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/collections/${encodeURIComponent(name)}?`;
+          void mutate((key) => typeof key === "string" && key.startsWith(collectionKeyPrefix));
+
+          if (!path) {
+            setPath(targetCanonical!);
+            router.push(`/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/collection/${encodeURIComponent(name)}/edit/${encodeURIComponent(targetCanonical!)}`);
+          } else if (previousCanonical) {
+            setPath(targetCanonical!);
+            setIsFilenameUnlocked(false);
+            router.replace(`/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/collection/${encodeURIComponent(name)}/edit/${encodeURIComponent(targetCanonical!)}`);
+          }
+
+          resolve({
+            status: "success",
+            message: "File saved successfully.",
+            data: {
+              sha: result.sha,
+              path: targetCanonical!,
+              name: getFileName(normalizePath(targetCanonical!)),
+              contentObject: formObject,
+            },
+          } as ApiSuccess<EntryData>);
+          return;
+        }
+
         let savePath = effectivePath ?? path;
         const trimmedFilename = filenameValue.trim();
         const normalizedFilename = normalizePath(trimmedFilename).split("/").pop() || "";
