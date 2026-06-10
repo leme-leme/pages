@@ -97,3 +97,49 @@ export const getLocalePaths = (
   }
   return paths;
 };
+
+/**
+ * If `filePath` is a non-default locale variant, return its locale; otherwise
+ * null (it is the canonical/default-locale path or not localized).
+ */
+export const getLocaleFromPath = (filePath: string, config: Config): string | null => {
+  const i18nConfig = getI18nConfig(config);
+  if (!i18nConfig) return null;
+  for (const locale of i18nConfig.locales) {
+    if (locale === i18nConfig.default_locale) continue;
+    if (getLocalizedPath(filePath, locale, config) === filePath) continue; // would not change → not this locale
+    // Reconstruct: does treating filePath as this locale's variant of some canonical hold?
+    if (i18nConfig.structure === "multiple_files") {
+      const m = filePath.match(/^(.*)\.([^./]+)\.([^./]+)$/);
+      if (m && m[2] === locale) return locale;
+    } else if (i18nConfig.structure === "multiple_folders") {
+      const parts = filePath.split("/");
+      if (parts.length >= 2 && parts[parts.length - 2] === locale) return locale;
+    }
+  }
+  return null;
+};
+
+/**
+ * Translation status for an entry: which locales have an existing file among
+ * `existingPaths`. For `single_file` only the default is path-derivable
+ * (per-locale presence needs the file body — see i18n docs).
+ */
+export const getTranslationStatus = (
+  canonicalPath: string,
+  existingPaths: Iterable<string>,
+  config: Config,
+): Record<string, boolean> => {
+  const i18nConfig = getI18nConfig(config);
+  if (!i18nConfig) return {};
+  const present = existingPaths instanceof Set ? existingPaths : new Set(existingPaths);
+  const status: Record<string, boolean> = {};
+  for (const locale of i18nConfig.locales) {
+    if (i18nConfig.structure === "single_file" && locale !== i18nConfig.default_locale) {
+      status[locale] = present.has(canonicalPath); // best-effort; body holds the truth
+    } else {
+      status[locale] = present.has(getLocalizedPath(canonicalPath, locale, config));
+    }
+  }
+  return status;
+};

@@ -12,6 +12,8 @@ import {
   getLocalePaths,
   getFieldI18nMode,
   isSingleFile,
+  getLocaleFromPath,
+  getTranslationStatus,
 } from "@/lib/i18n";
 import {
   serializeLocalizedEntry,
@@ -76,6 +78,23 @@ const FIELDS: Field[] = [
     nl: "content/posts/hello.md",
   });
   eq("getLocalePaths no-i18n", getLocalePaths("x.md", makeConfig(null)), {});
+}
+
+// ── getLocaleFromPath + getTranslationStatus ─────────────────────
+{
+  const mf = makeConfig({ structure: "multiple_files", locales: ["en", "nl", "de"], default_locale: "en" });
+  eq("locale from nl infix", getLocaleFromPath("content/posts/hello.nl.md", mf), "nl");
+  eq("locale from de infix", getLocaleFromPath("content/posts/hello.de.md", mf), "de");
+  eq("canonical (default) path => null", getLocaleFromPath("content/posts/hello.md", mf), null);
+
+  const fo = makeConfig({ structure: "multiple_folders", locales: ["en", "nl"], default_locale: "en" });
+  eq("locale from folder", getLocaleFromPath("content/posts/nl/hello.md", fo), "nl");
+  eq("default folder path => null", getLocaleFromPath("content/posts/hello.md", fo), null);
+
+  const present = ["content/posts/hello.md", "content/posts/hello.nl.md"];
+  eq("translation status multiple_files", getTranslationStatus("content/posts/hello.md", present, mf), {
+    en: true, nl: true, de: false,
+  });
 }
 
 // ── getFieldI18nMode normalization ───────────────────────────────

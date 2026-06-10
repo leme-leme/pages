@@ -12,6 +12,8 @@ import {
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useConfig } from "@/contexts/config-context";
+import { getI18nConfig, getLocaleFromPath, getTranslationStatus } from "@/lib/i18n";
+import { Badge } from "@/components/ui/badge";
 import { RepoActionButtons } from "@/components/repo/repo-action-buttons";
 import {
   getParentPath,
@@ -316,8 +318,25 @@ export function Collection({ name, path }: { name: string; path?: string }) {
         result.data.errors.forEach((e: any) => toast.error(e));
       }
 
-      const unsortedData = result.data.contents || [];
+      let unsortedData = result.data.contents || [];
       if (unsortedData.length === 0) return [];
+
+      // i18n: collapse per-locale sibling files into their canonical entry and
+      // attach a translation-status map so the list can badge missing locales.
+      const i18nCfg = getI18nConfig(config);
+      if (i18nCfg && i18nCfg.structure !== "single_file") {
+        const allPaths = new Set(
+          unsortedData.filter((r: any) => r.type === "file").map((r: any) => r.path as string),
+        );
+        unsortedData = unsortedData
+          .filter((r: any) => r.type !== "file" || getLocaleFromPath(r.path, config) === null)
+          .map((r: any) =>
+            r.type === "file"
+              ? { ...r, __localeStatus: getTranslationStatus(r.path, allPaths, config) }
+              : r,
+          );
+      }
+
       return unsortedData.sort((a: any, b: any) => {
         if (a.type === "dir" && b.type === "file")
           return schema.view?.foldersFirst ? -1 : 1;
@@ -326,7 +345,7 @@ export function Collection({ name, path }: { name: string; path?: string }) {
         return a.name.localeCompare(b.name);
       });
     },
-    [schema.view?.foldersFirst],
+    [schema.view?.foldersFirst, config],
   );
 
   const collectionPath =
@@ -611,13 +630,30 @@ export function Collection({ name, path }: { name: string; path?: string }) {
                 cellValue
               );
               if (path === primaryField) {
+                const localeStatus = row.original.__localeStatus as Record<string, boolean> | undefined;
                 return (
-                  <Link
-                    className="font-medium truncate"
-                    href={`/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/collection/${encodeURIComponent(name)}/edit/${encodeURIComponent(row.original.path)}`}
-                  >
-                    {CellView}
-                  </Link>
+                  <div className="flex items-center gap-x-2 min-w-0">
+                    <Link
+                      className="font-medium truncate"
+                      href={`/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/collection/${encodeURIComponent(name)}/edit/${encodeURIComponent(row.original.path)}`}
+                    >
+                      {CellView}
+                    </Link>
+                    {localeStatus && (
+                      <span className="shrink-0 flex items-center gap-x-1">
+                        {Object.entries(localeStatus).map(([locale, exists]) => (
+                          <Badge
+                            key={locale}
+                            variant={exists ? "secondary" : "outline"}
+                            className={exists ? "uppercase" : "uppercase text-muted-foreground/50"}
+                            title={exists ? `${locale}: translated` : `${locale}: missing`}
+                          >
+                            {locale}
+                          </Badge>
+                        ))}
+                      </span>
+                    )}
+                  </div>
                 );
               }
               return (
