@@ -1,0 +1,4 @@
+# Files here are copied to the assets dir (dist/client) on build; wrangler
+# reads this .assetsignore from the assets-dir root and skips matching files
+# when uploading. Keeps macOS Finder cruft out of the deployed Worker.
+.DS_Store
