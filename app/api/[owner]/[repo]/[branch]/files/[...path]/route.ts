@@ -22,6 +22,8 @@ import { stripUnwritableFields } from "@/lib/field-permissions";
 import mergeWith from "lodash.mergewith";
 import { buildCommitTokens, resolveCommitIdentity, resolveCommitMessage } from "@/lib/commit-message";
 import { requireApiUserSession } from "@/lib/session-server";
+import { saveContentCore } from "@/lib/content/save-core";
+import { githubSaveFile } from "@/lib/content/github-save-file";
 
 /**
  * Create, update and delete individual files in a GitHub repository.
@@ -67,7 +69,7 @@ export async function POST(
     let schemaCommitIdentity: "app" | "user" | undefined;
 
     switch (data.type) {
-      case "content":
+      case "content": {
         if (!data.name) throw new Error(`"name" is required for content.`);
 
         schema = getSchemaByName(config?.object, data.name);
@@ -83,118 +85,47 @@ export async function POST(
           { type: "collection", name: data.name },
           params.branch,
         );
-        schemaCommitTemplates = schema?.commit?.templates;
-        schemaCommitIdentity = schema?.commit?.identity;
 
-        if (!normalizedPath.startsWith(schema.path)) throw new Error(`Invalid path "${params.path}" for ${data.type} "${data.name}".`);
+        // The content save/serialize/commit pipeline is shared with the
+        // scheduling engine (lib/scheduling/run.ts), so it lives in a core.
+        const callerAccess = await resolveRepoAccess(
+          user,
+          params.owner,
+          params.repo,
+          params.branch,
+        );
+        const result = await saveContentCore({
+          owner: params.owner,
+          repo: params.repo,
+          branch: params.branch,
+          name: data.name,
+          path: normalizedPath,
+          content: data.content,
+          sha: data.sha,
+          onConflict,
+          token,
+          config,
+          actor: { userId: user.id, email: user.email ?? null, type: "user" },
+          role: callerAccess.role,
+          committerUser: { name: user.name, email: user.email },
+        });
 
-        if (schema.subfolders === false && getParentPath(normalizedPath) !== schema.path) {
-          throw new Error(`Subfolders are not allowed for collection "${data.name}".`);
-        }
-
-        if (getFileName(normalizedPath) === ".gitkeep") {
-          // Folder creation
-          contentBase64 = "";
-        } else {
-          if (getFileExtension(normalizedPath) !== (schema.extension ?? "")) throw new Error(`Invalid extension "${getFileExtension(normalizedPath)}" for ${data.type} "${data.name}".`);
-
-          if (serializedTypes.includes(schema.format) && schema.fields) {
-            let contentFields;
-            let contentObject;
-
-            // Wrapping things in listWrapper to deal with lists at the root
-            if (schema.list) {
-              contentObject = { listWrapper: data.content };
-              contentFields = [{
-                name: "listWrapper",
-                type: "object",
-                list: true,
-                fields: schema.fields
-              }]
-            } else {
-              contentObject = data.content;
-              contentFields = schema.fields;
-            }
-
-            const callerAccess = await resolveRepoAccess(
-              user,
-              params.owner,
-              params.repo,
-              params.branch,
-            );
-            contentObject = stripUnwritableFields(
-              contentObject,
-              contentFields,
-              callerAccess.role,
-              "write",
-            );
-
-            // Use mapBlocks to convert config blocks array to a map
-            const zodSchema = generateZodSchema(contentFields);
-            const zodValidation = zodSchema.safeParse(contentObject);
-            
-            if (zodValidation.success === false ) {
-              const errorMessages = zodValidation.error.issues.map((issue) => {
-                let message = issue.message;
-                if (issue.path.length > 0) message = `${message} at ${issue.path.join(".")}`;
-                return message;
-              });
-              throw new Error(`Content validation failed: ${errorMessages.join(", ")}`);
-            }
-
-            const validatedContentObject = deepMap(
-              zodValidation.data,
-              contentFields,
-              (value, field) => {
-                const fieldType = field.type as string;
-                return writeFns[fieldType] ? writeFns[fieldType](value, field, config || {}) : value;
-              }
-            );
-
-            const unwrappedContentObject = schema.list
-              ? validatedContentObject.listWrapper
-              : validatedContentObject;
-
-            let finalContentObject = JSON.parse(JSON.stringify(unwrappedContentObject));
-
-            if (config?.object?.settings?.content?.merge && data.sha && !schema.list) {
-              const octokit = createOctokitInstance(token);
-              const response = await octokit.rest.repos.getContent({
-                owner: params.owner,
-                repo: params.repo,
-                path: normalizedPath,
-                ref: params.branch
-              });
-              
-              if (Array.isArray(response.data)) {
-                throw new Error("Expected a file but found a directory");
-              } else if (response.data.type !== "file") {
-                throw new Error("Invalid response type");
-              }
-
-              const existingContent = Buffer.from(response.data.content, "base64").toString();
-              const existingContentObject = parse(existingContent, { format: schema.format, delimiters: schema.delimiters });
-
-              finalContentObject = mergeWith({}, existingContentObject, unwrappedContentObject, (objValue: any, srcValue: any) => {
-                if (Array.isArray(srcValue)) {
-                  return srcValue;
-                }
-              });
-            }
-            
-            const stringifiedContentObject = stringify(
-              sanitizeObject(finalContentObject),
-              {
-                format: schema.format,
-                delimiters: schema.delimiters
-              }
-            );
-            contentBase64 = Buffer.from(stringifiedContentObject).toString("base64");
-          } else {
-            contentBase64 = Buffer.from(data.content.body ?? "").toString("base64");
-          }
-        }
-        break;
+        return Response.json({
+          status: "success",
+          message: result.renamed
+            ? `File "${normalizedPath}" saved successfully but renamed to "${result.path}" to avoid naming conflict.`
+            : `File "${normalizedPath}" saved successfully.`,
+          data: {
+            type: result.response?.data.content?.type,
+            sha: result.sha,
+            name: result.response?.data.content?.name,
+            path: result.path,
+            extension: getFileExtension(result.response?.data.content?.name || ""),
+            size: result.response?.data.content?.size,
+            url: result.response?.data.content?.download_url,
+          },
+        });
+      }
       case "media":
         if (!data.name) throw new Error(`"name" is required for media.`);
 
@@ -433,162 +364,6 @@ export async function POST(
   }
 };
 
-// Helper function to save a file to GitHub (with retry logic for new files)
-const githubSaveFile = async (
-  token: string,
-  owner: string,
-  repo: string,
-  branch: string,
-  path: string,
-  contentBase64: string,
-  sha?: string,
-  options?: {
-    configObject?: Record<string, any>;
-    templatesOverride?: Record<string, string>;
-    contentName?: string;
-    user?: string;
-    onConflict?: "rename" | "error";
-    committer?: { name: string; email: string };
-  },
-) => {
-  // We disable retries for 409 errors as it means the file has changed (conflict on SHA)
-  const octokit = createOctokitInstance(token, { retry: { doNotRetry: [409] } });
-  
-  const message = resolveCommitMessage({
-    configObject: options?.configObject,
-    templatesOverride: options?.templatesOverride,
-    action: sha ? "update" : "create",
-    tokens: buildCommitTokens({
-      action: sha ? "update" : "create",
-      owner,
-      repo,
-      branch,
-      path,
-      contentName: options?.contentName,
-      user: options?.user,
-      userName: options?.committer?.name,
-      userEmail: options?.committer?.email,
-    }),
-  });
-
-  try {
-    // First attempt: try with original path
-    const response = await octokit.rest.repos.createOrUpdateFileContents({
-      owner,
-      repo,
-      path,
-      message,
-      content: contentBase64,
-      branch,
-      sha: sha || undefined,
-      committer: options?.committer,
-    });
-
-    if (response.data.content && response.data.commit) {
-      return response;
-    }
-    throw new Error("Invalid response structure");
-  } catch (error: any) {
-    const githubMessage = typeof error?.response?.data?.message === "string"
-      ? error.response.data.message
-      : undefined;
-
-    if (error.status === 409) {
-      if (githubMessage?.includes("Repository rule violations found")) {
-        throw createHttpError(
-          "This repository requires changes through a pull request. Save to a different branch or fork, or ask a maintainer to relax the repository rule for direct edits.",
-          409,
-        );
-      }
-
-      if (sha) {
-        throw createHttpError(
-          "File has changed since you last loaded it. Please refresh the page and try again.",
-          409,
-        );
-      }
-    }
-
-    // Only handle 422 errors for new files (no sha)
-    if (error.status === 422 && !sha) {
-      if (options?.onConflict === "error") {
-        throw createHttpError(`File \"${path}\" already exists.`, 409);
-      }
-
-      // Get directory contents to find next available name
-      const parentDir = getParentPath(path);
-      const { data } = await octokit.rest.repos.getContent({
-        owner,
-        repo,
-        path: parentDir || '.',
-        ref: branch,
-      });
-
-      if (!Array.isArray(data)) {
-        throw new Error('Expected directory listing');
-      }
-
-      const basename = path.split('/').pop() || "";
-      const lastDotIndex = basename.lastIndexOf(".");
-      const filename = lastDotIndex > 0 ? basename.slice(0, lastDotIndex) : basename;
-      const extension = lastDotIndex > 0 ? basename.slice(lastDotIndex + 1) : "";
-      const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const escapedFilename = escapeRegExp(filename);
-      const escapedExtension = escapeRegExp(extension);
-      const pattern = extension
-        ? new RegExp(`^${escapedFilename}-(\\d+)\\.${escapedExtension}$`)
-        : new RegExp(`^${escapedFilename}-(\\d+)$`);
-      const maxNumber = Math.max(0, ...data
-        .map(file => {
-          const match = file.name.match(pattern);
-          return match ? parseInt(match[1], 10) : 0;
-        }));
-
-      // Try up to 3 times with incrementing numbers
-      for (let i = 1; i <= 3; i++) {
-        const candidateFilename = extension
-          ? `${filename}-${maxNumber + i}.${extension}`
-          : `${filename}-${maxNumber + i}`;
-        const newPath = `${parentDir ? parentDir + '/' : ''}${candidateFilename}`;
-        const fallbackMessage = resolveCommitMessage({
-          configObject: options?.configObject,
-          templatesOverride: options?.templatesOverride,
-          action: "create",
-          tokens: buildCommitTokens({
-            action: "create",
-            owner,
-            repo,
-            branch,
-            path: newPath,
-            contentName: options?.contentName,
-            user: options?.user,
-            userName: options?.committer?.name,
-            userEmail: options?.committer?.email,
-          }),
-        });
-        try {
-          const response = await octokit.rest.repos.createOrUpdateFileContents({
-            owner,
-            repo,
-            path: newPath,
-            message: fallbackMessage,
-            content: contentBase64,
-            branch,
-            committer: options?.committer,
-          });
-
-          if (response.data.content && response.data.commit) {
-            return response;
-          }
-        } catch (error: any) {
-          if (i === 3 || error.status !== 422) throw error;
-          // Continue to next attempt if 422 (file already exists)
-        }
-      }
-    }
-    throw error;
-  }
-};
 
 export async function DELETE(
   request: NextRequest,

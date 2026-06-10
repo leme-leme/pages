@@ -60,7 +60,11 @@ const getToken = cache(async (
 });
 
 // Get the GitHub App installation token for a specific repository.
-const getInstallationToken = cache(async (owner: string, repo: string) => {
+//
+// Uncached implementation. Use this from non-request contexts (e.g. the
+// scheduled() worker handler / scheduling engine), where React's `cache`
+// has no request scope to memoize against.
+const getInstallationTokenUncached = async (owner: string, repo: string) => {
   const app = new App({
     appId: process.env.GITHUB_APP_ID!,
     privateKey: process.env.GITHUB_APP_PRIVATE_KEY!,
@@ -132,7 +136,10 @@ const getInstallationToken = cache(async (owner: string, repo: string) => {
   } finally {
     installationTokenRefreshInFlight.delete(installationId);
   }
-});
+};
+
+// Request-scoped cached wrapper (safe inside RSC/route handlers).
+const getInstallationToken = cache(getInstallationTokenUncached);
 
 // Get the GitHub user token.
 const getUserToken = cache(async (userId: string) => {
@@ -156,4 +163,4 @@ const canAccessRepoWithToken = async (
   }
 };
 
-export { getInstallationToken, getUserToken, getToken };
+export { getInstallationToken, getInstallationTokenUncached, getUserToken, getToken };
