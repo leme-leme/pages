@@ -357,6 +357,54 @@ const analyticsRollupTable = sqliteTable("analytics_rollup", {
   idx_analytics_rollup_date: index("idx_analytics_rollup_date").on(table.date),
 }));
 
+// Scheduled content updates. A row is created when an editor schedules a
+// publish / unpublish / delete; the `*/5` cron poller (lib/scheduling/run.ts)
+// picks up due rows and executes them with the GitHub App installation token.
+const scheduledJobTable = sqliteTable("scheduled_job", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+
+  // Repo coordinates — every job targets one branch (same shape as config/cache).
+  owner: text("owner").notNull(),
+  repo: text("repo").notNull(),
+  branch: text("branch").notNull(),
+
+  // What to do at fire time.
+  action: text("action").notNull(),              // publish | unpublish | delete
+  targetPath: text("target_path").notNull(),     // canonical entry path
+  schemaName: text("schema_name").notNull(),     // collection name (= data.name in /files)
+
+  // Payload = the body POST /files (or /files-batch) accepts, stored as JSON.
+  // null for delete (path + sha suffice).
+  payload: text("payload", { mode: "json" }),
+  isBatch: integer("is_batch", { mode: "boolean" }).notNull().default(false), // i18n multi-file
+
+  // Schedule.
+  scheduleKind: text("schedule_kind").notNull(),       // once | recurring
+  cronExpr: text("cron_expr"),                          // required when recurring
+  timezone: text("timezone").notNull().default("UTC"),  // for computing the next recurring fire
+  runAt: integer("run_at", { mode: "timestamp" }).notNull(), // next fire (UTC), both kinds
+
+  // Lifecycle.
+  status: text("status").notNull().default("pending"), // pending|running|done|failed|canceled
+  attempts: integer("attempts").notNull().default(0),
+  maxAttempts: integer("max_attempts").notNull().default(3),
+  lastRunAt: integer("last_run_at", { mode: "timestamp" }),
+  lastError: text("last_error"),
+  lockedAt: integer("locked_at", { mode: "timestamp" }), // optimistic-claim guard
+
+  // Provenance.
+  createdByUserId: text("created_by_user_id").references(() => userTable.id, { onDelete: "set null" }),
+  createdByEmail: text("created_by_email"),
+
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().default(now),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().default(now),
+}, table => ({
+  // Poller query: WHERE status='pending' AND run_at<=now ORDER BY run_at.
+  idx_scheduled_job_status_runAt: index("idx_scheduled_job_status_runAt").on(table.status, table.runAt),
+  // Management list filters by repo+branch.
+  idx_scheduled_job_owner_repo_branch: index("idx_scheduled_job_owner_repo_branch").on(table.owner, table.repo, table.branch),
+}));
+
 // Token-bucket rate limiter state. Keyed by `${userId}:${owner}/${repo}`.
 const rateLimitTable = sqliteTable("rate_limit", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -387,4 +435,5 @@ export {
   rateLimitTable,
   projectAnalyticsConfigTable,
   analyticsRollupTable,
+  scheduledJobTable,
 };

@@ -74,7 +74,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton"
 import { toast } from "sonner";
-import { EllipsisVertical, History, Lock, LockOpen, Save } from "lucide-react";
+import { CalendarClock, EllipsisVertical, History, Lock, LockOpen, Save } from "lucide-react";
+import { ScheduleDialog, type ScheduleConfig } from "@/components/entry/schedule-dialog";
 import useSWR, { useSWRConfig } from "swr";
 
 type LintView = {
@@ -406,7 +407,135 @@ export function Entry({
     && filenameValue.trim().length > 0
     && filenameValue.trim() !== currentFilename;
 
+  const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
+  const pendingScheduleRef = useRef<ScheduleConfig | null>(null);
+
+  // Which field marks an entry as a draft, for scheduled "unpublish".
+  const scheduleDraftField = useMemo(() => {
+    const fields = (schema?.fields ?? []) as { name?: string }[];
+    if (fields.some((f) => f.name === "status")) return "status";
+    if (fields.some((f) => f.name === "published")) return "published";
+    return null;
+  }, [schema]);
+  const canScheduleUnpublish = Boolean(scheduleDraftField) && !i18nActive;
+
+  const schedulesBaseUrl = `/api/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/schedules`;
+  const schedulesListUrl = path
+    ? `${schedulesBaseUrl}?path=${encodeURIComponent(path)}`
+    : schedulesBaseUrl;
+
+  const postSchedule = async (body: Record<string, unknown>) => {
+    const response = await fetch(schedulesBaseUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    await requireApiSuccess<any>(response, "Failed to create schedule");
+  };
+
+  const submitContentSchedule = async (
+    contentObject: Record<string, unknown>,
+    cfg: ScheduleConfig,
+  ) => {
+    const savePath = effectivePath ?? path;
+    if (!savePath) throw new Error("Save the entry before scheduling it.");
+
+    let payload: unknown;
+    let isBatch = false;
+    if (i18nActive) {
+      const formObject = (schema?.list === true
+        ? (contentObject as any).listWrapper
+        : contentObject) as Record<string, any>;
+      const mergedValues: ValuesByLocale = { ...(valuesByLocale ?? {}), [activeLocale]: formObject };
+      if (!mergedValues[defaultLocale]) mergedValues[defaultLocale] = mergedValues[activeLocale];
+      payload = buildI18nSaveRequest({
+        config,
+        schema: {
+          name,
+          fields: schema?.fields,
+          format: (schema as any)?.format,
+          delimiters: (schema as any)?.delimiters,
+        },
+        valuesByLocale: mergedValues,
+        canonicalPath: path,
+      });
+      isBatch = true;
+    } else {
+      payload = {
+        content: schema?.list === true ? (contentObject as any).listWrapper : contentObject,
+      };
+    }
+
+    const schedulePromise = postSchedule({
+      action: cfg.action,
+      name,
+      path: savePath,
+      payload,
+      isBatch,
+      scheduleKind: cfg.scheduleKind,
+      runAt: cfg.runAt,
+      cronExpr: cfg.cronExpr,
+      timezone: cfg.timezone,
+    });
+    toast.promise(schedulePromise, {
+      loading: "Scheduling…",
+      success: `Scheduled ${cfg.action} created.`,
+      error: (error: unknown) => (error instanceof Error ? error.message : "Failed to create schedule."),
+    });
+    await schedulePromise;
+  };
+
+  const handleScheduleConfirm = async (cfg: ScheduleConfig) => {
+    if (cfg.action === "delete") {
+      if (!path) throw new Error("Save the entry before scheduling it.");
+      const body: Record<string, unknown> = {
+        action: "delete",
+        name,
+        path,
+        isBatch: i18nActive,
+        payload: i18nActive
+          ? buildI18nDeleteRequest({ config, schema: { name }, canonicalPath: path })
+          : undefined,
+        scheduleKind: cfg.scheduleKind,
+        runAt: cfg.runAt,
+        cronExpr: cfg.cronExpr,
+        timezone: cfg.timezone,
+      };
+      const deletePromise = postSchedule(body);
+      toast.promise(deletePromise, {
+        loading: "Scheduling…",
+        success: "Scheduled delete created.",
+        error: (error: unknown) => (error instanceof Error ? error.message : "Failed to create schedule."),
+      });
+      await deletePromise;
+      return;
+    }
+
+    // publish / unpublish need the current (validated) editor content, so route
+    // through the form's submit pipeline.
+    pendingScheduleRef.current = cfg;
+    setScheduleDialogOpen(false);
+    const form = document.getElementById("entry-form");
+    if (form instanceof HTMLFormElement) {
+      form.requestSubmit();
+    } else {
+      pendingScheduleRef.current = null;
+      throw new Error("Could not capture the editor content.");
+    }
+  };
+
   const onSubmit = async (contentObject: Record<string, unknown>) => {
+    if (pendingScheduleRef.current) {
+      const cfg = pendingScheduleRef.current;
+      pendingScheduleRef.current = null;
+      try {
+        await submitContentSchedule(contentObject, cfg);
+      } catch (error) {
+        if (error instanceof Error) console.error(error.message);
+      }
+      return;
+    }
+
     setIsSaving(true);
     const submitStartChangeVersion = changeVersionRef.current;
 
@@ -865,6 +994,18 @@ export function Entry({
               )
               : <Button variant="outline" size="icon" className="shrink-0" disabled><History /></Button>
           )}
+          {path && schemaType === "collection" && (
+            <Button
+              variant="outline"
+              size="icon"
+              className="shrink-0"
+              disabled={isBusy}
+              onClick={() => setScheduleDialogOpen(true)}
+              aria-label="Schedule"
+            >
+              <CalendarClock />
+            </Button>
+          )}
           <Button
             type="submit"
             form="entry-form"
@@ -1072,13 +1213,28 @@ export function Entry({
         }}
       />;
 
-  return localeList
-    ? <LocaleProvider
-        locales={localeList}
-        activeLocale={activeLocale}
-        onActiveLocaleChange={setActiveLocale}
-        defaultLocale={defaultLocale}
-        i18nEnabled={i18nEnabled}
-      >{formNode}</LocaleProvider>
-    : formNode;
+  const scheduleDialogNode = path && schemaType === "collection" && (
+    <ScheduleDialog
+      open={scheduleDialogOpen}
+      onOpenChange={setScheduleDialogOpen}
+      schedulesUrl={schedulesListUrl}
+      canUnpublish={canScheduleUnpublish}
+      onConfirm={handleScheduleConfirm}
+    />
+  );
+
+  return (
+    <>
+      {localeList
+        ? <LocaleProvider
+            locales={localeList}
+            activeLocale={activeLocale}
+            onActiveLocaleChange={setActiveLocale}
+            defaultLocale={defaultLocale}
+            i18nEnabled={i18nEnabled}
+          >{formNode}</LocaleProvider>
+        : formNode}
+      {scheduleDialogNode}
+    </>
+  );
 };

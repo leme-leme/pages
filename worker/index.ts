@@ -62,11 +62,32 @@ export default {
     _env: Cloudflare.Env,
     ctx: ExecutionContext,
   ): Promise<void> {
+    if (event.cron === "*/5 * * * *") {
+      ctx.waitUntil((async () => {
+        try {
+          const { runDueScheduledJobs } = await import("@/lib/scheduling/run");
+          const r = await runDueScheduledJobs({ limit: 25 });
+          console.log("[scheduled] scheduled-jobs", r);
+        } catch (error) {
+          console.warn("[scheduled] scheduled-jobs failed", error);
+        }
+      })());
+      return;
+    }
+
     if (event.cron === "0 3 * * *") {
       ctx.waitUntil((async () => {
         const { gcOrphanMedia } = await import("@/lib/storage/lifecycle");
         const result = await gcOrphanMedia();
         console.log("[scheduled] orphan-gc", { deleted: result.deleted.length });
+
+        try {
+          const { pruneScheduledJobs } = await import("@/lib/scheduling/run");
+          const pruned = await pruneScheduledJobs();
+          console.log("[scheduled] scheduled-jobs-prune", pruned);
+        } catch (error) {
+          console.warn("[scheduled] scheduled-jobs-prune failed", error);
+        }
       })());
       return;
     }
