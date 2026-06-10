@@ -568,6 +568,20 @@ const generateFieldObjectSchema = (
           });
         }
 
+        // The inline localized-string field already localizes a single value;
+        // combining it with field-level i18n: translate is ambiguous (spec §10).
+        if (
+          (data.type === "localized-string" || data.type === "i18n") &&
+          (data.i18n === true || data.i18n === "translate")
+        ) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message:
+              "A 'localized-string' field cannot also set 'i18n: translate' — it already stores per-locale values. Use one or the other.",
+            path: ["i18n"],
+          });
+        }
+
         if (
           isBlock &&
           data.fields === undefined &&
