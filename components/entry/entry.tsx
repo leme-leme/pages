@@ -1066,6 +1066,8 @@ export function Entry({
         locales={localeList}
         activeLocale={activeLocale}
         onActiveLocaleChange={setActiveLocale}
+        defaultLocale={defaultLocale}
+        i18nEnabled={i18nEnabled}
       >{formNode}</LocaleProvider>
     : formNode;
 };
