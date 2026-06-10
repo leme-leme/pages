@@ -37,6 +37,7 @@ export function FileOptions({
   portalProps,
   onDelete,
   onRename,
+  deleteOverride,
   children
 }: {
   path: string;
@@ -48,6 +49,8 @@ export function FileOptions({
   portalProps?: any;
   onDelete?: (path: string) => void;
   onRename?: (path: string, newPath: string) => void;
+  /** When set, replaces the single-file DELETE (e.g. i18n: remove every locale). */
+  deleteOverride?: () => Promise<{ message?: string }>;
   children: React.ReactNode;
 }) {
   const { config } = useConfig();
@@ -76,7 +79,11 @@ export function FileOptions({
     try {
       const deletePromise = new Promise(async (resolve, reject) => {
         try {
-          const params = new URLSearchParams({ 
+          if (deleteOverride) {
+            resolve(await deleteOverride());
+            return;
+          }
+          const params = new URLSearchParams({
             sha,
             type: (type === "collection" || type === "file") ? "content" : type
           });

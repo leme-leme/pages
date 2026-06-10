@@ -85,8 +85,12 @@ import {
   ChevronsDownUp,
   ChevronsUpDown,
   ChevronRight,
+  Languages,
+  Link2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useLocale } from "@/contexts/locale-context";
+import { getFieldI18nMode } from "@/lib/i18n";
 import { interpolate } from "@/lib/schema";
 
 type BeforeSubmitHook = () => void | Promise<void>;
@@ -907,6 +911,30 @@ const SingleField = ({
     !(typeof field.list === "object" && field.list?.collapsible === false)
   );
 
+  // Field-level i18n (spec §5.3): in a non-default locale pane only `translate`
+  // fields are shown; `duplicate`/`none` fields are edited in the default pane.
+  const localeCtx = useLocale();
+  const i18nMultiLocale = !!localeCtx && localeCtx.i18nEnabled && localeCtx.locales.length > 1;
+  const i18nMode = i18nMultiLocale ? getFieldI18nMode(field as { i18n?: any }, true) : null;
+  const isNonDefaultLocale = !!localeCtx && localeCtx.activeLocale !== localeCtx.defaultLocale;
+  const i18nBadge = i18nMode === "translate"
+    ? (
+      <Badge variant="secondary" className="text-muted-foreground">
+        <Languages className="-ml-0.5" />
+        Per-locale
+      </Badge>
+    )
+    : i18nMode === "duplicate"
+      ? (
+        <Badge variant="secondary" className="text-muted-foreground">
+          <Link2 className="-ml-0.5" />
+          Shared
+        </Badge>
+      )
+      : null;
+
+  if (i18nMode && isNonDefaultLocale && i18nMode !== "translate") return null;
+
   if (["object", "block"].includes(field.type)) {
     const hasErrors = () => hasFieldPathError(errors, fieldName);
     const NestedComponent = field.type === "block" ? BlocksField : ObjectField;
@@ -932,6 +960,7 @@ const SingleField = ({
                 Readonly
               </Badge>
             )}
+            {i18nBadge}
           </div>
         )}
         <NestedComponent
@@ -991,6 +1020,7 @@ const SingleField = ({
                       Readonly
                     </Badge>
                   )}
+                  {i18nBadge}
                 </div>
                 {showLabelSlot && <div id={labelSlotId} className="shrink-0" />}
               </div>
