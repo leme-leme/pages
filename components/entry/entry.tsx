@@ -52,6 +52,7 @@ import { getCollectionI18n, getI18nConfig, getLocalizedPath } from "@/lib/i18n";
 import {
   loadLocalizedEntry,
   buildI18nSaveRequest,
+  buildI18nDeleteRequest,
   postBatch,
   type LoadedLocalizedEntry,
 } from "@/lib/i18n-save";
@@ -619,6 +620,15 @@ export function Entry({
     return () => window.removeEventListener("keydown", handleSaveShortcut);
   }, [isBusy]);
 
+  const i18nDeleteOverride = useCallback(async () => {
+    if (!path) return { message: "" };
+    await postBatch(
+      config,
+      buildI18nDeleteRequest({ config, schema: { name }, canonicalPath: path }),
+    );
+    return { message: "Entry deleted across all locales." };
+  }, [config, name, path]);
+
   const handleDelete = useCallback((path: string) => {
     // TODO: disable save button or freeze form while deleting?
     if (schemaType === "collection") {
@@ -893,6 +903,7 @@ export function Entry({
                     canRename={canRename}
                     onDelete={handleDelete}
                     onRename={handleRename}
+                    deleteOverride={i18nActive ? i18nDeleteOverride : undefined}
                   >
                     <Button variant="outline" size="icon" disabled={isBusy}>
                       <EllipsisVertical />

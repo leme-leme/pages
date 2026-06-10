@@ -13,6 +13,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useConfig } from "@/contexts/config-context";
 import { getI18nConfig, getLocaleFromPath, getTranslationStatus } from "@/lib/i18n";
+import { buildI18nDeleteRequest, postBatch } from "@/lib/i18n-save";
 import { Badge } from "@/components/ui/badge";
 import { RepoActionButtons } from "@/components/repo/repo-action-buttons";
 import {
@@ -689,6 +690,17 @@ export function Collection({ name, path }: { name: string; path?: string }) {
                 canRename={canRename}
                 onDelete={handleDelete}
                 onRename={handleRename}
+                deleteOverride={
+                  row.original.__localeStatus
+                    ? async () => {
+                        await postBatch(
+                          config,
+                          buildI18nDeleteRequest({ config, schema: { name }, canonicalPath: row.original.path }),
+                        );
+                        return { message: "Entry deleted across all locales." };
+                      }
+                    : undefined
+                }
               >
                 <Button variant="outline" size="icon-sm">
                   <EllipsisVertical />
