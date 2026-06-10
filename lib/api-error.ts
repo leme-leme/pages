@@ -4,11 +4,13 @@ type ErrorLike = {
   status?: number;
   statusCode?: number;
   message?: string;
+  headers?: HeadersInit;
 };
 
-const createHttpError = (message: string, status: number) => {
-  const error = new Error(message) as Error & { status: number };
+const createHttpError = (message: string, status: number, headers?: HeadersInit) => {
+  const error = new Error(message) as Error & { status: number; headers?: HeadersInit };
   error.status = status;
+  error.headers = headers;
   return error;
 };
 
@@ -78,12 +80,16 @@ const toErrorResponse = (error: unknown, context?: ErrorContext) => {
       });
     } catch {}
   }
+  const headers = error && typeof error === "object"
+    ? (error as ErrorLike).headers
+    : undefined;
+
   return Response.json(
     {
       status: "error",
       message: getErrorMessage(error),
     },
-    { status },
+    { status, headers },
   );
 };
 
