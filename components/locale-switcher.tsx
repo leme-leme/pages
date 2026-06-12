@@ -6,9 +6,7 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
-import { Globe } from "lucide-react";
 
 export function LocaleSwitcher() {
   const locale = useLocale();
@@ -16,15 +14,17 @@ export function LocaleSwitcher() {
 
   return (
     <Select value={locale.activeLocale} onValueChange={locale.setActiveLocale}>
-      <SelectTrigger size="sm" className="h-8 gap-1.5">
-        <Globe className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
-        <SelectValue placeholder="Locale" />
+      <SelectTrigger
+        size="sm"
+        aria-label="Locale"
+        className="h-8 w-auto gap-1 border-none bg-transparent px-2 font-medium text-muted-foreground shadow-none hover:text-foreground"
+      >
+        {locale.activeLocale.toUpperCase()}
       </SelectTrigger>
-      <SelectContent>
+      <SelectContent align="end">
         {locale.locales.map((code) => (
           <SelectItem key={code} value={code}>
-            <span className="font-medium">{code.toUpperCase()}</span>
-            <span className="text-muted-foreground ml-2">{locale.languageName(code)}</span>
+            {code.toUpperCase()}
           </SelectItem>
         ))}
       </SelectContent>
