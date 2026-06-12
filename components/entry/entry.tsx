@@ -136,8 +136,24 @@ export function Entry({
 
   const i18nConfig = useMemo(() => getI18nConfig(config), [config]);
   const i18nEnabled = schema ? getCollectionI18n(schema, config) : false;
+  // Structure-mode locales (root `i18n:` block → one file per locale). Drives
+  // the localized load/save, path resolution and batch commit below.
   const localeList = i18nEnabled && i18nConfig?.locales?.length ? i18nConfig.locales : null;
-  const defaultLocale = i18nConfig?.default_locale ?? localeList?.[0] ?? "";
+  // Inline-mode locales: an entry that declares its own `locales` and stores
+  // every language inside ONE file via inline `i18n`/`localized-string` fields
+  // ({locale: value} maps). This only drives the locale switcher — there are no
+  // per-locale file paths and no batch save.
+  const inlineLocaleList = useMemo(() => {
+    if (localeList) return null;
+    const entryLocales = (schema as any)?.locales;
+    return Array.isArray(entryLocales) && entryLocales.length > 1
+      ? (entryLocales as string[])
+      : null;
+  }, [localeList, schema]);
+  // Locales that drive the switcher + locale context (structure list when
+  // present, otherwise the inline list).
+  const switcherLocaleList = localeList ?? inlineLocaleList;
+  const defaultLocale = i18nConfig?.default_locale ?? switcherLocaleList?.[0] ?? "";
   const [activeLocale, setActiveLocale] = useState<string>(defaultLocale);
   const effectivePath = useMemo(() => {
     if (!path || !localeList || activeLocale === defaultLocale) return path;
@@ -851,7 +867,20 @@ export function Entry({
       </div>
       {showHeaderActions && (
         <div className="flex shrink-0 items-center gap-x-2">
-          <LocaleSwitcher />
+          {/* The header renders in a layout slot OUTSIDE the form's
+              LocaleProvider, so wrap the switcher in its own provider bound to
+              the same activeLocale state. */}
+          {switcherLocaleList && (
+            <LocaleProvider
+              locales={switcherLocaleList}
+              activeLocale={activeLocale}
+              onActiveLocaleChange={setActiveLocale}
+              defaultLocale={defaultLocale}
+              i18nEnabled={i18nEnabled}
+            >
+              <LocaleSwitcher />
+            </LocaleProvider>
+          )}
           {headerActionsNode}
           {path && (
             historyData && historyData.length > 0 && !isLoading
@@ -917,7 +946,7 @@ export function Entry({
         </div>
       )}
     </div>
-  ), [breadcrumbNode, canDelete, canRename, filenameChanged, filenameFieldMode, filenameValue, handleDelete, handleRename, hasRegisteredChanges, headerActionsNode, headerMeta, historyData, isBusy, isFilenameUnlocked, isFormDirty, isLoading, name, path, schemaType, sha, showFilenameField, showHeaderActions]);
+  ), [breadcrumbNode, canDelete, canRename, filenameChanged, filenameFieldMode, filenameValue, handleDelete, handleRename, hasRegisteredChanges, headerActionsNode, headerMeta, historyData, isBusy, isFilenameUnlocked, isFormDirty, isLoading, name, path, schemaType, sha, showFilenameField, showHeaderActions, switcherLocaleList, activeLocale, setActiveLocale, defaultLocale, i18nEnabled, inlineLocaleList]);
 
   useRepoHeader({ header: headerNode });
 
@@ -1072,9 +1101,9 @@ export function Entry({
         }}
       />;
 
-  return localeList
+  return switcherLocaleList
     ? <LocaleProvider
-        locales={localeList}
+        locales={switcherLocaleList}
         activeLocale={activeLocale}
         onActiveLocaleChange={setActiveLocale}
         defaultLocale={defaultLocale}
