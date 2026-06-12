@@ -1,17 +1,8 @@
 /**
- * Localized entry model (spec §7).
- *
- * Bridges the per-locale editor state (`Record<locale, contentObject>`) and the
- * on-disk representation for each i18n structure:
- *
- *  - `multiple_files` / `multiple_folders`: one file per locale. `translate`
- *    fields differ per file, `duplicate` fields carry the default value into
- *    every file, `none` fields live only in the default-locale file.
- *  - `single_file`: one file with a locale-keyed object. `translate` fields live
- *    inside each locale block; `duplicate`/`none` fields live once at the root.
- *
- * The markdown `body` is always treated as translatable. Unknown content keys
- * (not declared as fields) are kept per-locale so no data is silently dropped.
+ * Maps between the editor's per-locale value model and the on-disk
+ * representation for each i18n structure. `translate` fields vary per locale;
+ * `duplicate` fields mirror the default value; `none` fields live only in the
+ * default locale.
  */
 
 import type { Config } from "@/types/config";
@@ -43,10 +34,7 @@ export type SerializedFile = {
 
 type FormatOptions = { format?: any; delimiters?: any };
 
-/**
- * Partition a collection's top-level field names by localization mode. `body`
- * is reported separately and always treated as translatable.
- */
+/** Partition a collection's top-level field names by localization mode. */
 export const partitionTopLevelModes = (
   fields: Field[] | undefined,
   i18nEnabled: boolean,
@@ -67,11 +55,7 @@ export const partitionTopLevelModes = (
 const cloneValue = <T>(value: T): T =>
   value === undefined ? value : JSON.parse(JSON.stringify(value));
 
-/**
- * Build the canonical per-locale content objects for a `multiple_*` structure
- * from the editor's per-locale values, applying field modes. `none` fields are
- * omitted from non-default locales; `duplicate` fields take the default value.
- */
+/** Apply field modes to the editor's per-locale values, one object per locale. */
 export const buildLocaleContentObjects = ({
   fields,
   valuesByLocale,
@@ -104,10 +88,7 @@ export const buildLocaleContentObjects = ({
   return result;
 };
 
-/**
- * Produce the file writes for an entry across all locales. Returns one entry per
- * locale for `multiple_*`, or a single merged file for `single_file`.
- */
+/** File writes for an entry: one per locale, or a single merged `single_file`. */
 export const serializeLocalizedEntry = ({
   fields,
   valuesByLocale,
@@ -141,12 +122,10 @@ export const serializeLocalizedEntry = ({
     const { duplicate, none } = partitionTopLevelModes(fields, i18nEnabled);
     const shared = new Set<string>([...duplicate, ...none]);
     const merged: ContentObject = {};
-    // Shared (duplicate/none) fields live at the root, taken from the default locale.
     const defaultObject = perLocale[defaultLocale] ?? {};
     for (const key of shared) {
       if (defaultObject[key] !== undefined) merged[key] = cloneValue(defaultObject[key]);
     }
-    // Each locale block holds the translatable fields + body.
     for (const locale of locales) {
       const localeObject = perLocale[locale] ?? {};
       const block: ContentObject = {};
@@ -168,11 +147,7 @@ export const serializeLocalizedEntry = ({
   }));
 };
 
-/**
- * Reconstruct the editor's per-locale values from the parsed content objects of
- * each locale file. `duplicate`/`none` fields are hydrated from the default
- * locale so they display (and stay in sync) in every pane.
- */
+/** Rebuild the editor's per-locale values from each locale's parsed object. */
 export const mergeLocaleContentObjects = ({
   fields,
   objectsByLocale,
@@ -203,11 +178,7 @@ export const mergeLocaleContentObjects = ({
   return values;
 };
 
-/**
- * Inverse of `serializeLocalizedEntry`. `filesByLocale` maps each locale to its
- * raw file content; for `single_file`, pass the one file under any key (it is
- * parsed and split by locale).
- */
+/** Inverse of `serializeLocalizedEntry`: parse each locale's raw file content. */
 export const deserializeLocalizedEntry = ({
   fields,
   filesByLocale,
@@ -226,7 +197,7 @@ export const deserializeLocalizedEntry = ({
     const only = Object.values(filesByLocale)[0] ?? "";
     return { default: parse(only, { format, delimiters }) };
   }
-  const { locales, default_locale: defaultLocale } = i18nConfig;
+  const { locales } = i18nConfig;
 
   if (i18nConfig.structure === "single_file") {
     const raw = Object.values(filesByLocale).find((c) => c != null) ?? "";
@@ -250,6 +221,5 @@ export const deserializeLocalizedEntry = ({
     const raw = filesByLocale[locale];
     objectsByLocale[locale] = raw != null ? (parse(raw, { format, delimiters }) as ContentObject) : {};
   }
-  void defaultLocale;
   return mergeLocaleContentObjects({ fields, objectsByLocale, config, i18nEnabled });
 };

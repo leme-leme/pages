@@ -144,8 +144,8 @@ export function Entry({
     return getLocalizedPath(path, activeLocale, config);
   }, [activeLocale, config, defaultLocale, localeList, path]);
 
-  // i18n entries load/save every locale through the localized model + batch
-  // endpoint, instead of the single-file path used for non-i18n content.
+  // i18n entries load/save every locale via the batch endpoint, not the
+  // single-file path used for non-i18n content.
   const i18nActive = useMemo(
     () => !!localeList && schemaType === "collection" && path !== ".pages.yml" && initialPath !== ".pages.yml",
     [initialPath, localeList, path, schemaType],

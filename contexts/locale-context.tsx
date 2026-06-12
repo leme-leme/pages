@@ -11,20 +11,13 @@ function getLanguageName(locale: string): string {
   return locale.toUpperCase();
 }
 
-export type LocaleViewMode = "single" | "side-by-side";
-
 type LocaleContextValue = {
   locales: string[];
   activeLocale: string;
   setActiveLocale: (locale: string) => void;
   languageName: (locale: string) => string;
   defaultLocale: string;
-  /** Whether the surrounding collection has i18n enabled (drives field modes). */
   i18nEnabled: boolean;
-  viewMode: LocaleViewMode;
-  setViewMode: (mode: LocaleViewMode) => void;
-  /** Locales currently shown (side-by-side); defaults to all locales. */
-  localesShown: string[];
 };
 
 const LocaleContext = createContext<LocaleContextValue | null>(null);
@@ -45,15 +38,11 @@ export function LocaleProvider({
   i18nEnabled?: boolean;
 }) {
   const [internalLocale, setInternalLocale] = useState(locales[0] ?? "en");
-  const [viewMode, setViewMode] = useState<LocaleViewMode>("single");
   const isControlled = controlledLocale !== undefined && onActiveLocaleChange !== undefined;
   const activeLocale = isControlled ? controlledLocale : internalLocale;
   const setActiveLocale = (next: string) => {
-    if (isControlled) {
-      onActiveLocaleChange(next);
-    } else {
-      setInternalLocale(next);
-    }
+    if (isControlled) onActiveLocaleChange(next);
+    else setInternalLocale(next);
   };
 
   const value = useMemo<LocaleContextValue>(
@@ -64,12 +53,9 @@ export function LocaleProvider({
       languageName: getLanguageName,
       defaultLocale: defaultLocale ?? locales[0] ?? "",
       i18nEnabled,
-      viewMode,
-      setViewMode,
-      localesShown: locales,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [locales, activeLocale, defaultLocale, i18nEnabled, viewMode],
+    [locales, activeLocale, defaultLocale, i18nEnabled],
   );
 
   return <LocaleContext.Provider value={value}>{children}</LocaleContext.Provider>;

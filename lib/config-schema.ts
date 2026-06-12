@@ -568,8 +568,8 @@ const generateFieldObjectSchema = (
           });
         }
 
-        // The inline localized-string field already localizes a single value;
-        // combining it with field-level i18n: translate is ambiguous (spec §10).
+        // A localized-string field already stores per-locale values, so
+        // pairing it with `i18n: translate` is ambiguous.
         if (
           (data.type === "localized-string" || data.type === "i18n") &&
           (data.i18n === true || data.i18n === "translate")

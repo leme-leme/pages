@@ -9,7 +9,6 @@ export interface I18nConfig {
   default_locale: string;
 }
 
-/** Normalized per-field localization mode (see spec §5.3). */
 export type FieldI18nMode = "translate" | "duplicate" | "none";
 
 export const getI18nConfig = (config: Config): I18nConfig | null => {
@@ -29,9 +28,8 @@ export const isSingleFile = (config: Config): boolean =>
   getI18nConfig(config)?.structure === "single_file";
 
 /**
- * Normalize a field's `i18n` key to a localization mode. Aliases:
- * `true → translate`, `false / null / undefined → none`. When the collection
- * is not i18n-enabled, every field is `none` (spec §5.3, §13).
+ * Resolve a field's localization mode. `true` aliases `translate`; an
+ * i18n-disabled collection makes every field `none`.
  */
 export const getFieldI18nMode = (
   field: Pick<Field, "i18n">,
@@ -44,7 +42,10 @@ export const getFieldI18nMode = (
   return "none";
 };
 
-export const getCollectionI18n = (collection: any, config: Config): boolean => {
+export const getCollectionI18n = (
+  collection: { i18n?: boolean } | null | undefined,
+  config: Config,
+): boolean => {
   if (!collection) return false;
   if (collection.i18n === true) return true;
   if (collection.i18n === false) return false;
@@ -75,16 +76,11 @@ export const getLocalizedPath = (
       return `${dir ? dir + "/" : ""}${locale}/${filename}`;
     case "single_file":
     default:
-      // One file holds every locale; the path is locale-independent.
       return originalPath;
   }
 };
 
-/**
- * Map every configured locale to its on-disk path for a canonical entry path.
- * For `single_file` all locales resolve to the same path. Returns an empty map
- * when i18n is not configured.
- */
+/** Map every configured locale to its on-disk path for a canonical entry path. */
 export const getLocalePaths = (
   canonicalPath: string,
   config: Config,
@@ -98,17 +94,13 @@ export const getLocalePaths = (
   return paths;
 };
 
-/**
- * If `filePath` is a non-default locale variant, return its locale; otherwise
- * null (it is the canonical/default-locale path or not localized).
- */
+/** Return the locale of a non-default-locale file path, or null. */
 export const getLocaleFromPath = (filePath: string, config: Config): string | null => {
   const i18nConfig = getI18nConfig(config);
   if (!i18nConfig) return null;
   for (const locale of i18nConfig.locales) {
     if (locale === i18nConfig.default_locale) continue;
-    if (getLocalizedPath(filePath, locale, config) === filePath) continue; // would not change → not this locale
-    // Reconstruct: does treating filePath as this locale's variant of some canonical hold?
+    if (getLocalizedPath(filePath, locale, config) === filePath) continue;
     if (i18nConfig.structure === "multiple_files") {
       const m = filePath.match(/^(.*)\.([^./]+)\.([^./]+)$/);
       if (m && m[2] === locale) return locale;
@@ -121,9 +113,8 @@ export const getLocaleFromPath = (filePath: string, config: Config): string | nu
 };
 
 /**
- * Translation status for an entry: which locales have an existing file among
- * `existingPaths`. For `single_file` only the default is path-derivable
- * (per-locale presence needs the file body — see i18n docs).
+ * Which locales of an entry have an existing file among `existingPaths`. For
+ * `single_file`, non-default presence can't be derived from the path alone.
  */
 export const getTranslationStatus = (
   canonicalPath: string,
@@ -136,7 +127,7 @@ export const getTranslationStatus = (
   const status: Record<string, boolean> = {};
   for (const locale of i18nConfig.locales) {
     if (i18nConfig.structure === "single_file" && locale !== i18nConfig.default_locale) {
-      status[locale] = present.has(canonicalPath); // best-effort; body holds the truth
+      status[locale] = present.has(canonicalPath);
     } else {
       status[locale] = present.has(getLocalizedPath(canonicalPath, locale, config));
     }

@@ -911,8 +911,8 @@ const SingleField = ({
     !(typeof field.list === "object" && field.list?.collapsible === false)
   );
 
-  // Field-level i18n (spec §5.3): in a non-default locale pane only `translate`
-  // fields are shown; `duplicate`/`none` fields are edited in the default pane.
+  // In a non-default locale pane, only `translate` fields are editable;
+  // `duplicate`/`none` fields are edited in the default pane.
   const localeCtx = useLocale();
   const i18nMultiLocale = !!localeCtx && localeCtx.i18nEnabled && localeCtx.locales.length > 1;
   const i18nMode = i18nMultiLocale ? getFieldI18nMode(field as { i18n?: any }, true) : null;

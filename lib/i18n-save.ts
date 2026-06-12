@@ -1,8 +1,4 @@
-/**
- * Client-side orchestration for loading and saving an i18n entry across all of
- * its locale files. Builds on the pure transforms in `lib/i18n-entry.ts` and the
- * batch write endpoint (`/files-batch`).
- */
+/** Loads and saves an i18n entry across its locale files via `/files-batch`. */
 
 import type { Config } from "@/types/config";
 import type { Field } from "@/types/field";
@@ -76,8 +72,7 @@ export const loadLocalizedEntry = async ({
   const fields = schema.fields;
 
   if (isSingleFile(config)) {
-    // One file holds every locale. Fetch the raw body (no schema parsing) and split.
-    const raw = await fetchEntry(config, canonicalPath); // no name => raw body
+    const raw = await fetchEntry(config, canonicalPath);
     const valuesByLocale = deserializeLocalizedEntry({
       fields,
       filesByLocale: { single: raw.body ?? "" },
@@ -94,7 +89,6 @@ export const loadLocalizedEntry = async ({
     };
   }
 
-  // multiple_files / multiple_folders: one file per locale.
   const paths = getLocalePaths(canonicalPath, config);
   const objectsByLocale: Record<string, Record<string, any> | undefined> = {};
   const shaByLocale: Record<string, string | undefined> = {};
@@ -116,9 +110,8 @@ export const loadLocalizedEntry = async ({
 };
 
 /**
- * Build the `/files-batch` request body to persist an entry across all locales.
- * `previousCanonicalPath` (when different) schedules the old locale files for
- * deletion so a rename/slug change moves every locale in one commit.
+ * Build the `/files-batch` body to persist an entry across all locales. A
+ * changed `previousCanonicalPath` deletes the old locale files (rename/move).
  */
 export const buildI18nSaveRequest = ({
   config,

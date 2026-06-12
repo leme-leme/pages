@@ -2,9 +2,6 @@ import { z } from "zod";
 import type { Field } from "@/types/field";
 import { EditComponent } from "./edit-component";
 
-// Renamed from "i18n (multilingual)" to avoid confusion with the config-level
-// `i18n` structure model. This inline field is an escape hatch for localizing a
-// single field's value in an otherwise non-i18n entry (spec §10).
 const label = "Localized string";
 
 const schema = (field: Field) => {
