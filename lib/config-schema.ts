@@ -476,6 +476,19 @@ const generateFieldObjectSchema = (
           })
           .optional()
           .nullable(),
+        i18n: z
+          .union(
+            [
+              z.boolean(),
+              z.enum(["translate", "duplicate", "none"]),
+            ],
+            {
+              message:
+                "'i18n' must be a boolean or one of 'translate', 'duplicate', 'none'.",
+            },
+          )
+          .optional()
+          .nullable(),
         pattern: z
           .union([
             z.string({
@@ -552,6 +565,20 @@ const generateFieldObjectSchema = (
             message:
               "Fields with type 'object' must have a 'fields' attribute.",
             path: ["fields"],
+          });
+        }
+
+        // A localized-string field already stores per-locale values, so
+        // pairing it with `i18n: translate` is ambiguous.
+        if (
+          (data.type === "localized-string" || data.type === "i18n") &&
+          (data.i18n === true || data.i18n === "translate")
+        ) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message:
+              "A 'localized-string' field cannot also set 'i18n: translate' — it already stores per-locale values. Use one or the other.",
+            path: ["i18n"],
           });
         }
 
@@ -983,6 +1010,17 @@ const ConfigSchema = z
         }
       });
     };
+
+    const i18n = (data as any)?.i18n;
+    if (i18n && typeof i18n === "object" && Array.isArray(i18n.locales)) {
+      if (i18n.default_locale != null && !i18n.locales.includes(i18n.default_locale)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "'i18n.default_locale' must be one of 'i18n.locales'.",
+          path: ["i18n", "default_locale"],
+        });
+      }
+    }
 
     const content = data?.content;
     if (!Array.isArray(content)) return;

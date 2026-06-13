@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { Field } from "@/types/field";
 import { EditComponent } from "./edit-component";
 
-const label = "i18n (multilingual)";
+const label = "Localized string";
 
 const schema = (field: Field) => {
   const languages: string[] = ((field.options as any)?.languages as string[]) ?? ["en", "nl"];

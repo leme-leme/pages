@@ -49,7 +49,8 @@ registerField("boolean", booleanField);
 registerField("code", codeField);
 registerField("date", dateField);
 registerField("file", fileField);
-registerField("i18n", i18nField);
+registerField("localized-string", i18nField);
+registerField("i18n", i18nField); // legacy alias for "localized-string"
 registerField("image", imageField);
 registerField("number", numberField);
 registerField("reference", referenceField);

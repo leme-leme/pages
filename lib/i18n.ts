@@ -1,16 +1,51 @@
 import type { Config } from "@/types/config";
+import type { Field } from "@/types/field";
+
+export type I18nStructure = "multiple_files" | "multiple_folders" | "single_file";
 
 export interface I18nConfig {
-  structure: "multiple_files" | "multiple_folders" | "single_file";
+  structure: I18nStructure;
   locales: string[];
   default_locale: string;
 }
 
+export type FieldI18nMode = "translate" | "duplicate" | "none";
+
 export const getI18nConfig = (config: Config): I18nConfig | null => {
-  return (config.object as any)?.i18n ?? null;
+  const i18n = (config.object as any)?.i18n;
+  if (!i18n || typeof i18n !== "object" || !Array.isArray(i18n.locales) || i18n.locales.length === 0) {
+    return null;
+  }
+  return {
+    structure: i18n.structure as I18nStructure,
+    locales: i18n.locales as string[],
+    default_locale: i18n.default_locale ?? i18n.locales[0],
+  };
 };
 
-export const getCollectionI18n = (collection: any, config: Config): boolean => {
+/** True when the repo i18n structure stores every locale in one file. */
+export const isSingleFile = (config: Config): boolean =>
+  getI18nConfig(config)?.structure === "single_file";
+
+/**
+ * Resolve a field's localization mode. `true` aliases `translate`; an
+ * i18n-disabled collection makes every field `none`.
+ */
+export const getFieldI18nMode = (
+  field: Pick<Field, "i18n">,
+  collectionI18nEnabled: boolean,
+): FieldI18nMode => {
+  if (!collectionI18nEnabled) return "none";
+  const raw = field?.i18n;
+  if (raw === true || raw === "translate") return "translate";
+  if (raw === "duplicate") return "duplicate";
+  return "none";
+};
+
+export const getCollectionI18n = (
+  collection: { i18n?: boolean } | null | undefined,
+  config: Config,
+): boolean => {
   if (!collection) return false;
   if (collection.i18n === true) return true;
   if (collection.i18n === false) return false;
@@ -43,4 +78,59 @@ export const getLocalizedPath = (
     default:
       return originalPath;
   }
+};
+
+/** Map every configured locale to its on-disk path for a canonical entry path. */
+export const getLocalePaths = (
+  canonicalPath: string,
+  config: Config,
+): Record<string, string> => {
+  const i18nConfig = getI18nConfig(config);
+  if (!i18nConfig) return {};
+  const paths: Record<string, string> = {};
+  for (const locale of i18nConfig.locales) {
+    paths[locale] = getLocalizedPath(canonicalPath, locale, config);
+  }
+  return paths;
+};
+
+/** Return the locale of a non-default-locale file path, or null. */
+export const getLocaleFromPath = (filePath: string, config: Config): string | null => {
+  const i18nConfig = getI18nConfig(config);
+  if (!i18nConfig) return null;
+  for (const locale of i18nConfig.locales) {
+    if (locale === i18nConfig.default_locale) continue;
+    if (getLocalizedPath(filePath, locale, config) === filePath) continue;
+    if (i18nConfig.structure === "multiple_files") {
+      const m = filePath.match(/^(.*)\.([^./]+)\.([^./]+)$/);
+      if (m && m[2] === locale) return locale;
+    } else if (i18nConfig.structure === "multiple_folders") {
+      const parts = filePath.split("/");
+      if (parts.length >= 2 && parts[parts.length - 2] === locale) return locale;
+    }
+  }
+  return null;
+};
+
+/**
+ * Which locales of an entry have an existing file among `existingPaths`. For
+ * `single_file`, non-default presence can't be derived from the path alone.
+ */
+export const getTranslationStatus = (
+  canonicalPath: string,
+  existingPaths: Iterable<string>,
+  config: Config,
+): Record<string, boolean> => {
+  const i18nConfig = getI18nConfig(config);
+  if (!i18nConfig) return {};
+  const present = existingPaths instanceof Set ? existingPaths : new Set(existingPaths);
+  const status: Record<string, boolean> = {};
+  for (const locale of i18nConfig.locales) {
+    if (i18nConfig.structure === "single_file" && locale !== i18nConfig.default_locale) {
+      status[locale] = present.has(canonicalPath);
+    } else {
+      status[locale] = present.has(getLocalizedPath(canonicalPath, locale, config));
+    }
+  }
+  return status;
 };

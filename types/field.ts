@@ -10,6 +10,7 @@ export type Field = {
   readonly?: boolean | null;
   required?: boolean | null;
   pattern?: string | { regex: string; message?: string };
+  i18n?: boolean | "translate" | "duplicate" | "none" | null;
   options?: Record<string, unknown> | null;
   fields?: Field[];
   blocks?: Field[];
