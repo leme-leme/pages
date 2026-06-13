@@ -15,7 +15,7 @@ export function LocaleSwitcher() {
     >
       {locale.locales.map((code) => (
         <option key={code} value={code}>
-          {code.toUpperCase()} — {locale.languageName(code)}
+          {code.toUpperCase()}
         </option>
       ))}
     </select>
