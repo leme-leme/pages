@@ -136,13 +136,11 @@ export function Entry({
 
   const i18nConfig = useMemo(() => getI18nConfig(config), [config]);
   const i18nEnabled = schema ? getCollectionI18n(schema, config) : false;
-  // Structure-mode locales (root `i18n:` block → one file per locale). Drives
-  // the localized load/save, path resolution and batch commit below.
+  // Structure-mode locales (root `i18n:` block): one file per locale; drives the
+  // localized load/save below.
   const localeList = i18nEnabled && i18nConfig?.locales?.length ? i18nConfig.locales : null;
-  // Inline-mode locales: an entry that declares its own `locales` and stores
-  // every language inside ONE file via inline `i18n`/`localized-string` fields
-  // ({locale: value} maps). This only drives the locale switcher — there are no
-  // per-locale file paths and no batch save.
+  // Inline-mode locales: an entry's own `locales` with inline i18n fields stored
+  // in one file. Drives only the switcher — no per-locale paths, no batch save.
   const inlineLocaleList = useMemo(() => {
     if (localeList) return null;
     const entryLocales = (schema as any)?.locales;
@@ -150,8 +148,6 @@ export function Entry({
       ? (entryLocales as string[])
       : null;
   }, [localeList, schema]);
-  // Locales that drive the switcher + locale context (structure list when
-  // present, otherwise the inline list).
   const switcherLocaleList = localeList ?? inlineLocaleList;
   const defaultLocale = i18nConfig?.default_locale ?? switcherLocaleList?.[0] ?? "";
   const [activeLocale, setActiveLocale] = useState<string>(defaultLocale);
@@ -867,9 +863,8 @@ export function Entry({
       </div>
       {showHeaderActions && (
         <div className="flex shrink-0 items-center gap-x-2">
-          {/* The header renders in a layout slot OUTSIDE the form's
-              LocaleProvider, so wrap the switcher in its own provider bound to
-              the same activeLocale state. */}
+          {/* The header renders outside the form's LocaleProvider, so give the
+              switcher its own provider bound to the same activeLocale state. */}
           {switcherLocaleList && (
             <LocaleProvider
               locales={switcherLocaleList}
