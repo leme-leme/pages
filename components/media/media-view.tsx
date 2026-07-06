@@ -54,6 +54,7 @@ import {
   File,
   Folder,
   FolderPlus,
+  FolderUp,
   Search,
   Upload
 } from "lucide-react";
@@ -96,6 +97,18 @@ function MediaHeaderActions({
           </div>
         </TooltipTrigger>
         <TooltipContent>Create folder</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div>
+            <MediaUpload.Trigger folder>
+              <Button type="button" variant="outline" size="icon">
+                <FolderUp />
+              </Button>
+            </MediaUpload.Trigger>
+          </div>
+        </TooltipTrigger>
+        <TooltipContent>Upload folder</TooltipContent>
       </Tooltip>
       <MediaUpload.Trigger>
         <Button type="button" className="gap-2">
@@ -370,6 +383,25 @@ const MediaView = ({
 
   const handleUpload = useCallback((entry: FileSaveData) => {
     if (!entry.path || !entry.name) return;
+
+    // Folder uploads land files in subfolders of the current path: don't
+    // list those files here — surface the first-level folder tile instead.
+    if (getParentPath(entry.path) !== path) {
+      if (path && entry.path.startsWith(`${path}/`)) {
+        const firstSegment = entry.path.slice(path.length + 1).split("/")[0];
+        const folderPath = joinPathSegments([path, firstSegment]);
+        setData((prevData) => {
+          const folderEntry: MediaItem = { type: "dir", name: firstSegment, path: folderPath };
+          if (!prevData) return [folderEntry];
+          if (prevData.some((item) => item.path === folderPath)) return prevData;
+          return sortMediaItems([...prevData, folderEntry]);
+        });
+      }
+      void mutate((key) => typeof key === "string" && key.includes(`/media/${encodeURIComponent(mediaConfig.name)}/`));
+      onUpload?.(entry);
+      return;
+    }
+
     const mediaEntry: MediaItem = {
       type: "file",
       sha: entry.sha,
@@ -394,7 +426,7 @@ const MediaView = ({
     });
     void mutate((key) => typeof key === "string" && key.includes(`/media/${encodeURIComponent(mediaConfig.name)}/`));
     onUpload?.(entry);
-  }, [mediaConfig.name, mutate, onUpload, sortMediaItems]);
+  }, [mediaConfig.name, mutate, onUpload, path, sortMediaItems]);
 
   const handleDelete = useCallback((deletedPath: string) => {
     setData((prevData) => {

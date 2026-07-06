@@ -32,8 +32,21 @@ const fetchStorageInfo = async (url: string): Promise<StorageInfo> => {
   return (json?.data as StorageInfo) ?? DEFAULT_STORAGE_INFO;
 };
 
+// A plain File uploads into the current path; the wrapped form carries the
+// directory (relative to the current path) it should land in, used for
+// folder uploads so the dropped/picked folder structure is preserved.
+type UploadItem = File | { file: File; dir: string };
+
+const itemFile = (item: UploadItem): File => (item instanceof File ? item : item.file);
+const itemDir = (item: UploadItem): string => {
+  if (!(item instanceof File)) return item.dir;
+  // Files picked via a webkitdirectory input carry their folder-relative path.
+  const rel = (item as File & { webkitRelativePath?: string }).webkitRelativePath;
+  return rel && rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "";
+};
+
 interface MediaUploadContextValue {
-  handleFiles: (files: File[]) => Promise<void>;
+  handleFiles: (items: UploadItem[]) => Promise<void>;
   accept?: string;
   multiple?: boolean;
   disabled?: boolean;
@@ -54,6 +67,9 @@ interface MediaUploadProps {
 
 interface MediaUploadTriggerProps {
   children: React.ReactElement<{ onClick?: () => void }>;
+  /** Open a directory picker instead of a file picker; uploads the folder's
+   * contents preserving its internal structure under the current path. */
+  folder?: boolean;
 }
 
 interface MediaUploadDropZoneProps {
@@ -93,10 +109,12 @@ function MediaUploadRoot({ children, path, onUpload, media, extensions, multiple
     { revalidateOnFocus: false, fallbackData: DEFAULT_STORAGE_INFO },
   );
 
-  const handleFiles = useCallback(async (files: File[]) => {
+  const handleFiles = useCallback(async (items: UploadItem[]) => {
     try {
       const info = storageInfo ?? DEFAULT_STORAGE_INFO;
-      for (const rawFile of files) {
+      for (const item of items) {
+        const rawFile = itemFile(item);
+        const relativeDir = itemDir(item);
         const file = await transformImage(
           rawFile,
           configMedia?.transformations,
@@ -121,7 +139,7 @@ function MediaUploadRoot({ children, path, onUpload, media, extensions, multiple
           );
         }
 
-        const fullPath = joinPathSegments([path ?? "", uploadFilename]);
+        const fullPath = joinPathSegments([path ?? "", relativeDir, uploadFilename]);
 
         const uploadPromise = (async (): Promise<FileSaveData> => {
           if (file.size >= MULTIPART_THRESHOLD) {
@@ -185,10 +203,10 @@ function MediaUploadRoot({ children, path, onUpload, media, extensions, multiple
   );
 }
 
-function MediaUploadTrigger({ children }: MediaUploadTriggerProps) {
+function MediaUploadTrigger({ children, folder = false }: MediaUploadTriggerProps) {
   const context = useContext(MediaUploadContext);
   if (!context) throw new Error("MediaUploadTrigger must be used within a MediaUpload component");
-  
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const filterAcceptedFiles = useCallback((files: File[]) => {
@@ -234,9 +252,11 @@ function MediaUploadTrigger({ children }: MediaUploadTriggerProps) {
         type="file"
         ref={fileInputRef}
         onChange={handleFileInput}
-        accept={context.accept}
+        accept={folder ? undefined : context.accept}
         multiple={context.multiple}
         hidden
+        // Non-standard but universally supported directory-picker attribute.
+        {...(folder ? ({ webkitdirectory: "" } as Record<string, string>) : {})}
       />
       {cloneElement(children, { onClick: handleClick })}
     </>
@@ -249,25 +269,25 @@ function MediaUploadDropZone({ children, className }: MediaUploadDropZoneProps) 
   
   const [isDragging, setIsDragging] = useState(false);
 
-  const filterAcceptedFiles = useCallback((files: File[]) => {
+  const filterAcceptedItems = useCallback((items: UploadItem[]) => {
     const acceptedExtensions = context.accept?.split(",").map((ext) => ext.trim().toLowerCase());
-    if (!acceptedExtensions?.length) return files;
+    if (!acceptedExtensions?.length) return items;
 
-    const validFiles = files.filter((file) => {
-      const ext = `.${file.name.split(".").pop()?.toLowerCase()}`;
+    const validItems = items.filter((item) => {
+      const ext = `.${itemFile(item).name.split(".").pop()?.toLowerCase()}`;
       return acceptedExtensions.includes(ext);
     });
 
-    if (validFiles.length === 0) {
+    if (validItems.length === 0) {
       toast.error(`Invalid file type. Allowed: ${context.accept}`);
       return [];
     }
 
-    if (validFiles.length !== files.length) {
+    if (validItems.length !== items.length) {
       toast.error(`Some files were skipped. Allowed: ${context.accept}`);
     }
 
-    return validFiles;
+    return validItems;
   }, [context.accept]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -282,19 +302,64 @@ function MediaUploadDropZone({ children, className }: MediaUploadDropZoneProps) 
     setIsDragging(false);
   }, [context.disabled]);
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
     if (context.disabled) return;
     e.preventDefault();
     setIsDragging(false);
-    
-    const files = e.dataTransfer.files;
-    if (!files || files.length === 0) return;
 
-    const validFiles = filterAcceptedFiles(Array.from(files));
-    if (validFiles.length === 0) return;
+    // Capture entries synchronously — DataTransferItems go stale after the
+    // first await. Entries let us traverse dropped folders recursively.
+    const entries = Array.from(e.dataTransfer.items ?? [])
+      .map((item) => item.webkitGetAsEntry?.())
+      .filter((entry): entry is FileSystemEntry => !!entry);
 
-    context.handleFiles(validFiles);
-  }, [context, filterAcceptedFiles]);
+    let items: UploadItem[];
+    if (entries.length > 0) {
+      const collected: { file: File; dir: string }[] = [];
+      const readAllEntries = async (dir: FileSystemDirectoryEntry): Promise<FileSystemEntry[]> => {
+        // readEntries returns results in batches; loop until it comes back empty.
+        const reader = dir.createReader();
+        const all: FileSystemEntry[] = [];
+        for (;;) {
+          const batch = await new Promise<FileSystemEntry[]>((resolve, reject) =>
+            reader.readEntries(resolve, reject),
+          );
+          if (batch.length === 0) return all;
+          all.push(...batch);
+        }
+      };
+      const traverse = async (entry: FileSystemEntry, dir: string): Promise<void> => {
+        if (entry.isFile) {
+          const file = await new Promise<File>((resolve, reject) =>
+            (entry as FileSystemFileEntry).file(resolve, reject),
+          );
+          collected.push({ file, dir });
+        } else if (entry.isDirectory) {
+          const children = await readAllEntries(entry as FileSystemDirectoryEntry);
+          for (const child of children) {
+            await traverse(child, joinPathSegments([dir, entry.name]));
+          }
+        }
+      };
+      try {
+        for (const entry of entries) await traverse(entry, "");
+      } catch (error) {
+        console.error("Failed to read dropped folder", error);
+        toast.error("Could not read the dropped folder.");
+        return;
+      }
+      items = collected;
+    } else {
+      const files = e.dataTransfer.files;
+      if (!files || files.length === 0) return;
+      items = Array.from(files);
+    }
+
+    const validItems = filterAcceptedItems(items);
+    if (validItems.length === 0) return;
+
+    context.handleFiles(validItems);
+  }, [context, filterAcceptedItems]);
 
   return (
     <div
