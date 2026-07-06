@@ -370,7 +370,15 @@ export async function DELETE(
   context: { params: Promise<{ owner: string, repo: string, branch: string, path: string | string[] }> }
 ) {
   try {
-    const params = await context.params;
+    const rawParams = await context.params;
+    // Catch-all segments arrive as an array; join them like POST does so the
+    // path helpers below always receive a string.
+    const params = {
+      ...rawParams,
+      path: Array.isArray(rawParams.path)
+        ? rawParams.path.map(decodeURIComponent).join("/")
+        : decodeURIComponent(rawParams.path),
+    };
     const sessionResult = await requireApiUserSession();
     if ("response" in sessionResult) return sessionResult.response;
     const user = sessionResult.user;
