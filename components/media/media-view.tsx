@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, memo, type ReactNode, startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useConfig } from "@/contexts/config-context";
@@ -373,10 +374,25 @@ const MediaView = ({
     setError(null);
   }, [swrMediaData]);
 
+  const hasDataRef = useRef(false);
+  useEffect(() => {
+    hasDataRef.current = !!data;
+  }, [data]);
+
   useEffect(() => {
     if (!swrMediaError) return;
     const message = swrMediaError instanceof Error ? swrMediaError.message : "Failed to fetch media.";
-    setError(/\b404\b/.test(message) ? "Not found" : message);
+    if (/\b404\b/.test(message)) {
+      setError("Not found");
+      return;
+    }
+    // A transient refetch failure (e.g. during an upload burst) shouldn't
+    // replace an already-rendered grid with the error page.
+    if (hasDataRef.current) {
+      toast.error(message);
+    } else {
+      setError(message);
+    }
   }, [swrMediaError]);
 
   const isLoading = swrMediaLoading && !data;
@@ -739,6 +755,14 @@ const MediaView = ({
     }
   }, [gridItems, handleNavigate, setLightboxPath]);
 
+  // Must be declared before the conditional returns below — a hook after an
+  // early return crashes with React #300 ("rendered fewer hooks") the moment
+  // `error` flips on a later render.
+  const previewableItems = useMemo(
+    () => gridItems.filter((g) => g.isImage || g.isVideo).map((g) => g.item),
+    [gridItems],
+  );
+
   if (!mediaConfig.input) {
     return (
       <Empty className="absolute inset-0 border-0 rounded-none">
@@ -836,11 +860,6 @@ const MediaView = ({
         }
       </div>
     </MediaUpload.DropZone>
-  );
-
-  const previewableItems = useMemo(
-    () => gridItems.filter((g) => g.isImage || g.isVideo).map((g) => g.item),
-    [gridItems],
   );
 
   const lightboxNode = lightboxPath !== null ? (
