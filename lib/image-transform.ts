@@ -68,10 +68,19 @@ export async function transformImage(
   const mime = FORMAT_MIME[format];
   let blob: Blob;
   try {
+    // JPEG has no alpha channel: transparent pixels would encode as black,
+    // so flatten onto white first.
+    const fillBackground = (ctx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D) => {
+      if (format !== "jpeg") return;
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, width, height);
+    };
+
     if (typeof OffscreenCanvas !== "undefined") {
       const canvas = new OffscreenCanvas(width, height);
       const ctx = canvas.getContext("2d");
       if (!ctx) throw new Error("2d context unavailable on OffscreenCanvas");
+      fillBackground(ctx);
       ctx.drawImage(bitmap, 0, 0, width, height);
       blob = await canvas.convertToBlob({ type: mime, quality });
     } else {
@@ -80,6 +89,7 @@ export async function transformImage(
       canvas.height = height;
       const ctx = canvas.getContext("2d");
       if (!ctx) throw new Error("2d context unavailable on HTMLCanvasElement");
+      fillBackground(ctx);
       ctx.drawImage(bitmap, 0, 0, width, height);
       blob = await new Promise<Blob>((resolve, reject) => {
         canvas.toBlob(
