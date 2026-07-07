@@ -301,9 +301,30 @@ const replaceFolderCache = async (
     if (entries.length > 0) {
       // D1 caps bound parameters per query at ~100. cache_file rows have
       // ~17 placeholders each, so 5 rows per chunk keeps us well under.
+      // Upsert rather than insert: the folder-cache lock is per-isolate, so
+      // two concurrent refreshes of the same folder can interleave their
+      // delete+insert and collide on the unique (owner,repo,branch,path)
+      // index — converge on the latest row instead of failing the request.
       const CHUNK = 5;
       for (let i = 0; i < entries.length; i += CHUNK) {
-        await tx.insert(cacheFileTable).values(entries.slice(i, i + CHUNK));
+        await tx.insert(cacheFileTable)
+          .values(entries.slice(i, i + CHUNK))
+          .onConflictDoUpdate({
+            target: [cacheFileTable.owner, cacheFileTable.repo, cacheFileTable.branch, cacheFileTable.path],
+            set: {
+              context: sql`excluded.context`,
+              parentPath: sql`excluded.parent_path`,
+              name: sql`excluded.name`,
+              type: sql`excluded.type`,
+              content: sql`excluded.content`,
+              sha: sql`excluded.sha`,
+              size: sql`excluded.size`,
+              downloadUrl: sql`excluded.download_url`,
+              commitSha: sql`excluded.commit_sha`,
+              commitTimestamp: sql`excluded.commit_timestamp`,
+              updatedAt: sql`excluded.updated_at`,
+            },
+          });
       }
 
       await tx.insert(cacheFileMetaTable).values({
