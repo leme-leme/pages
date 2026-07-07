@@ -22,12 +22,11 @@ export const isBranchMovedError = (error: any): boolean => {
 export const BRANCH_MOVED_FRIENDLY_MESSAGE =
   "GitHub is still syncing the previous commit (this happens during rapid consecutive changes). The file was not saved — retry it.";
 
-// ~26s cumulative worst case: GitHub's read replica occasionally lags its
-// own previous commit by 10s+ during a rapid commit burst, so short retry
-// windows still lose files.
+// ~7.5s cumulative worst case. Batched multi-file uploads (one commit per
+// batch) removed the rapid-commit bursts that needed a longer window.
 export async function withBranchMovedRetry<T>(
   fn: () => Promise<T>,
-  attempts = 8,
+  attempts = 4,
 ): Promise<T> {
   for (let attempt = 1; ; attempt++) {
     try {
