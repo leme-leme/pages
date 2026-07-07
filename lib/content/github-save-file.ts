@@ -2,6 +2,11 @@ import { createOctokitInstance } from "@/lib/utils/octokit";
 import { createHttpError } from "@/lib/api-error";
 import { getParentPath } from "@/lib/utils/file";
 import { buildCommitTokens, resolveCommitMessage } from "@/lib/commit-message";
+import {
+  BRANCH_MOVED_FRIENDLY_MESSAGE,
+  isBranchMovedError,
+  withBranchMovedRetry,
+} from "@/lib/github-retry";
 
 /**
  * Save a file to GitHub with retry/rename logic for new files.
@@ -22,7 +27,7 @@ export const githubSaveFile = async (
     templatesOverride?: Record<string, string>;
     contentName?: string;
     user?: string;
-    onConflict?: "rename" | "error";
+    onConflict?: "rename" | "error" | "replace";
     committer?: { name: string; email: string };
   },
 ) => {
@@ -47,37 +52,21 @@ export const githubSaveFile = async (
   });
 
   try {
-    // First attempt: try with original path. Rapid sequential commits to the
-    // same branch (e.g. multi-file uploads) can hit a transient 409 where
-    // GitHub reports the branch "is at <sha> but expected <sha>" — retry
-    // those with backoff. Real SHA conflicts (a `sha` we supplied is stale)
-    // are not retried and fall through to the handling below.
-    const BRANCH_MOVED_ATTEMPTS = 4;
-    let response;
-    for (let attempt = 1; ; attempt++) {
-      try {
-        response = await octokit.rest.repos.createOrUpdateFileContents({
-          owner,
-          repo,
-          path,
-          message,
-          content: contentBase64,
-          branch,
-          sha: sha || undefined,
-          committer: options?.committer,
-        });
-        break;
-      } catch (error: any) {
-        const message = typeof error?.response?.data?.message === "string"
-          ? error.response.data.message
-          : "";
-        const branchMoved = error?.status === 409
-          && !sha
-          && /is at [0-9a-f]{7,40} but expected [0-9a-f]{7,40}/i.test(message);
-        if (!branchMoved || attempt >= BRANCH_MOVED_ATTEMPTS) throw error;
-        await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
-      }
-    }
+    // First attempt: try with original path. Transient branch-moved 409s
+    // (rapid sequential commits) are retried with backoff; real SHA
+    // conflicts fall through to the handling below.
+    const response = await withBranchMovedRetry(() =>
+      octokit.rest.repos.createOrUpdateFileContents({
+        owner,
+        repo,
+        path,
+        message,
+        content: contentBase64,
+        branch,
+        sha: sha || undefined,
+        committer: options?.committer,
+      }),
+    );
 
     if (response.data.content && response.data.commit) {
       return response;
@@ -103,11 +92,8 @@ export const githubSaveFile = async (
         );
       }
 
-      if (/is at [0-9a-f]{7,40} but expected [0-9a-f]{7,40}/i.test(githubMessage ?? "")) {
-        throw createHttpError(
-          "GitHub rejected the commit because the branch moved while uploading. Retry the failed file.",
-          409,
-        );
+      if (isBranchMovedError(error)) {
+        throw createHttpError(BRANCH_MOVED_FRIENDLY_MESSAGE, 409);
       }
     }
 
@@ -115,6 +101,37 @@ export const githubSaveFile = async (
     if (error.status === 422 && !sha) {
       if (options?.onConflict === "error") {
         throw createHttpError(`File \"${path}\" already exists.`, 409);
+      }
+
+      // Idempotent mode: the file already exists, so update it in place
+      // instead of creating a numbered duplicate (re-uploads overwrite).
+      if (options?.onConflict === "replace") {
+        const existing = await octokit.rest.repos.getContent({
+          owner,
+          repo,
+          path,
+          ref: branch,
+        });
+        if (Array.isArray(existing.data) || existing.data.type !== "file") {
+          throw error;
+        }
+        const existingSha = existing.data.sha;
+        const response = await withBranchMovedRetry(() =>
+          octokit.rest.repos.createOrUpdateFileContents({
+            owner,
+            repo,
+            path,
+            message,
+            content: contentBase64,
+            branch,
+            sha: existingSha,
+            committer: options?.committer,
+          }),
+        );
+        if (response.data.content && response.data.commit) {
+          return response;
+        }
+        throw new Error("Invalid response structure");
       }
 
       // Get directory contents to find next available name

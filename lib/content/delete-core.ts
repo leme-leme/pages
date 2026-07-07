@@ -1,4 +1,5 @@
 import { createOctokitInstance } from "@/lib/utils/octokit";
+import { withBranchMovedRetry } from "@/lib/github-retry";
 import { isContentOperationAllowed } from "@/lib/operations";
 import { getSchemaByName } from "@/lib/schema";
 import { getFileExtension, normalizePath, getParentPath } from "@/lib/utils/file";
@@ -88,7 +89,7 @@ export async function deleteContentCore(input: DeleteContentInput): Promise<Dele
       }
     : undefined;
 
-  const response = await octokit.rest.repos.deleteFile({
+  const response = await withBranchMovedRetry(() => octokit.rest.repos.deleteFile({
     owner,
     repo,
     branch,
@@ -111,7 +112,7 @@ export async function deleteContentCore(input: DeleteContentInput): Promise<Dele
       }),
     }),
     committer,
-  });
+  }));
 
   await updateFileCache(
     "collection",

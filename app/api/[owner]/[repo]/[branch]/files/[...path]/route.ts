@@ -24,6 +24,7 @@ import { buildCommitTokens, resolveCommitIdentity, resolveCommitMessage } from "
 import { requireApiUserSession } from "@/lib/session-server";
 import { saveContentCore } from "@/lib/content/save-core";
 import { githubSaveFile } from "@/lib/content/github-save-file";
+import { withBranchMovedRetry } from "@/lib/github-retry";
 
 /**
  * Create, update and delete individual files in a GitHub repository.
@@ -61,7 +62,9 @@ export async function POST(
     if (!config && normalizedPath !== ".pages.yml") throw new Error(`Configuration not found for ${params.owner}/${params.repo}/${params.branch}.`);
 
     const data: any = await request.json();
-    const onConflict = data.onConflict === "error" ? "error" : "rename";
+    const onConflict = ["error", "replace"].includes(data.onConflict)
+      ? data.onConflict as "error" | "replace"
+      : "rename";
 
     let contentBase64;
     let schema;
@@ -520,7 +523,7 @@ export async function DELETE(
       : undefined;
     
     const octokit = createOctokitInstance(token);
-    const response = await octokit.rest.repos.deleteFile({
+    const response = await withBranchMovedRetry(() => octokit.rest.repos.deleteFile({
       owner: params.owner,
       repo: params.repo,
       branch: params.branch,
@@ -543,7 +546,7 @@ export async function DELETE(
         }),
       }),
       committer,
-    });
+    }));
 
     // Update cache after successful deletion
     await updateFileCache(

@@ -169,6 +169,9 @@ function MediaUploadRoot({ children, path, onUpload, media, extensions, multiple
               name: configMedia.name,
               content,
               size: file.size,
+              // Idempotent: re-uploading a file overwrites it instead of
+              // creating a numbered duplicate.
+              onConflict: "replace",
             }),
           });
           const data = await requireApiSuccess<any>(response, "Failed to upload file");
