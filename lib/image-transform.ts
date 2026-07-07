@@ -45,15 +45,29 @@ export async function transformImage(
   const qualityPct = cfg.quality ?? 82;
   const quality = Math.min(Math.max(qualityPct, 0), 100) / 100;
 
-  let bitmap: ImageBitmap;
+  // Very large images (tens of megapixels) can exceed WebKit's ImageBitmap
+  // memory limits; fall back to <img>-element decoding, which is more
+  // tolerant, before giving up.
+  let bitmap: ImageBitmap | HTMLImageElement;
   try {
     bitmap = await createImageBitmap(file);
-  } catch (err) {
-    console.warn(`[image-transform] createImageBitmap failed for ${file.name}; uploading original.`, err);
-    return file;
+  } catch (bitmapErr) {
+    try {
+      bitmap = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("image decode failed")); };
+        img.src = url;
+      });
+    } catch (imgErr) {
+      console.warn(`[image-transform] decode failed for ${file.name}; uploading original.`, bitmapErr, imgErr);
+      return file;
+    }
   }
 
-  let { width, height } = bitmap;
+  let width = bitmap instanceof HTMLImageElement ? bitmap.naturalWidth : bitmap.width;
+  let height = bitmap instanceof HTMLImageElement ? bitmap.naturalHeight : bitmap.height;
   const maxW = cfg.width;
   const maxH = cfg.height;
 
