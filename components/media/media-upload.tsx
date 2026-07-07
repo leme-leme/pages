@@ -134,15 +134,19 @@ function MediaUploadRoot({ children, path, onUpload, media, extensions, multiple
           rename ?? configMedia?.rename,
         );
 
+        // A single oversized file must not abort the rest of the upload:
+        // report it and continue with the others.
         if (info.maxFileBytes !== -1 && file.size > info.maxFileBytes) {
-          throw new Error(
-            `${file.name} is ${(file.size / 1024 / 1024).toFixed(0)} MB; storage limit is ${(info.maxFileBytes / 1024 / 1024).toFixed(0)} MB.`,
+          toast.error(
+            `Skipped ${file.name}: ${(file.size / 1024 / 1024).toFixed(0)} MB exceeds the ${(info.maxFileBytes / 1024 / 1024).toFixed(0)} MB storage limit.`,
           );
+          continue;
         }
         if (!info.configured && file.size > 25 * 1024 * 1024) {
-          throw new Error(
-            `${file.name} is too large for GitHub uploads. Configure S3/R2 storage in Settings → Storage to upload files larger than 25 MB.`,
+          toast.error(
+            `Skipped ${file.name}: too large for GitHub uploads (${(file.size / 1024 / 1024).toFixed(0)} MB). Configure S3/R2 storage in Settings → Storage for files over 25 MB.`,
           );
+          continue;
         }
 
         prepared.push({
