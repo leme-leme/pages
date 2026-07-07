@@ -20,18 +20,21 @@ export const isBranchMovedError = (error: any): boolean => {
 };
 
 export const BRANCH_MOVED_FRIENDLY_MESSAGE =
-  "GitHub rejected the commit because the branch moved while committing. Retry the failed file.";
+  "GitHub is still syncing the previous commit (this happens during rapid consecutive changes). The file was not saved — retry it.";
 
+// ~26s cumulative worst case: GitHub's read replica occasionally lags its
+// own previous commit by 10s+ during a rapid commit burst, so short retry
+// windows still lose files.
 export async function withBranchMovedRetry<T>(
   fn: () => Promise<T>,
-  attempts = 4,
+  attempts = 8,
 ): Promise<T> {
   for (let attempt = 1; ; attempt++) {
     try {
       return await fn();
     } catch (error) {
       if (!isBranchMovedError(error) || attempt >= attempts) throw error;
-      await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+      await new Promise((resolve) => setTimeout(resolve, 750 * attempt));
     }
   }
 }
