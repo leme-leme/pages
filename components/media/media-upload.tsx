@@ -112,6 +112,16 @@ function MediaUploadRoot({ children, path, onUpload, media, extensions, multiple
   const handleFiles = useCallback(async (items: UploadItem[]) => {
     try {
       const info = storageInfo ?? DEFAULT_STORAGE_INFO;
+
+      const PRESIGN_THRESHOLD = info.configured ? info.thresholdBytes : Number.POSITIVE_INFINITY;
+      const MULTIPART_THRESHOLD = 100 * 1024 * 1024; // resumable past 100 MB
+      const PART_SIZE = 8 * 1024 * 1024;
+
+      // Transform + name everything first, then split into files that go to
+      // S3 (uploaded individually) and files that go to GitHub (batched
+      // into single commits — one commit per file both spams history and
+      // trips GitHub's replica race under rapid consecutive commits).
+      const prepared: { file: File; fullPath: string }[] = [];
       for (const item of items) {
         const rawFile = itemFile(item);
         const relativeDir = itemDir(item);
@@ -124,10 +134,6 @@ function MediaUploadRoot({ children, path, onUpload, media, extensions, multiple
           rename ?? configMedia?.rename,
         );
 
-        const PRESIGN_THRESHOLD = info.configured ? info.thresholdBytes : Number.POSITIVE_INFINITY;
-        const MULTIPART_THRESHOLD = 100 * 1024 * 1024; // resumable past 100 MB
-        const PART_SIZE = 8 * 1024 * 1024;
-
         if (info.maxFileBytes !== -1 && file.size > info.maxFileBytes) {
           throw new Error(
             `${file.name} is ${(file.size / 1024 / 1024).toFixed(0)} MB; storage limit is ${(info.maxFileBytes / 1024 / 1024).toFixed(0)} MB.`,
@@ -139,27 +145,37 @@ function MediaUploadRoot({ children, path, onUpload, media, extensions, multiple
           );
         }
 
-        const fullPath = joinPathSegments([path ?? "", relativeDir, uploadFilename]);
+        prepared.push({
+          file,
+          fullPath: joinPathSegments([path ?? "", relativeDir, uploadFilename]),
+        });
+      }
 
+      const s3Files = prepared.filter(({ file }) => file.size >= PRESIGN_THRESHOLD);
+      const githubFiles = prepared.filter(({ file }) => file.size < PRESIGN_THRESHOLD);
+
+      // S3-bound files: unchanged per-file flow.
+      for (const { file, fullPath } of s3Files) {
+        const uploadPromise = file.size >= MULTIPART_THRESHOLD
+          ? uploadMultipart({ apiBase, file, fullPath, mediaName: configMedia.name, partSize: PART_SIZE })
+          : uploadPresigned({ apiBase, file, fullPath, mediaName: configMedia.name });
+
+        await toast.promise(uploadPromise, {
+          loading: `Uploading ${file.name}`,
+          success: (savedEntry) => {
+            onUpload?.(savedEntry);
+            return `Uploaded ${file.name}`;
+          },
+          error: (error: unknown) => error instanceof Error ? error.message : "Upload failed",
+        });
+      }
+
+      if (githubFiles.length === 0) return;
+
+      // Single file: keep the per-file endpoint (idempotent via replace).
+      if (githubFiles.length === 1) {
+        const { file, fullPath } = githubFiles[0];
         const uploadPromise = (async (): Promise<FileSaveData> => {
-          if (file.size >= MULTIPART_THRESHOLD) {
-            return uploadMultipart({
-              apiBase,
-              file,
-              fullPath,
-              mediaName: configMedia.name,
-              partSize: PART_SIZE,
-            });
-          }
-          if (file.size >= PRESIGN_THRESHOLD) {
-            return uploadPresigned({
-              apiBase,
-              file,
-              fullPath,
-              mediaName: configMedia.name,
-            });
-          }
-          // Small files: existing JSON+base64 path through GitHub.
           const content = await readAsBase64(file);
           const response = await fetch(`${apiBase}/files/${encodeURIComponent(fullPath)}`, {
             method: "POST",
@@ -183,6 +199,72 @@ function MediaUploadRoot({ children, path, onUpload, media, extensions, multiple
           success: (savedEntry) => {
             onUpload?.(savedEntry);
             return `Uploaded ${file.name}`;
+          },
+          error: (error: unknown) => error instanceof Error ? error.message : "Upload failed",
+        });
+        return;
+      }
+
+      // Multiple GitHub-bound files: one commit per chunk via files-batch.
+      // Chunk so a single request body stays well under Workers limits.
+      const MAX_CHUNK_FILES = 20;
+      const MAX_CHUNK_BYTES = 16 * 1024 * 1024; // raw bytes per request
+      const chunks: { file: File; fullPath: string }[][] = [];
+      let current: { file: File; fullPath: string }[] = [];
+      let currentBytes = 0;
+      for (const entry of githubFiles) {
+        if (current.length > 0 && (current.length >= MAX_CHUNK_FILES || currentBytes + entry.file.size > MAX_CHUNK_BYTES)) {
+          chunks.push(current);
+          current = [];
+          currentBytes = 0;
+        }
+        current.push(entry);
+        currentBytes += entry.file.size;
+      }
+      if (current.length > 0) chunks.push(current);
+
+      let uploadedCount = 0;
+      for (const [chunkIndex, chunk] of chunks.entries()) {
+        const batchPromise = (async () => {
+          const files = await Promise.all(chunk.map(async ({ file, fullPath }) => ({
+            path: fullPath,
+            content: await readAsBase64(file),
+            size: file.size,
+          })));
+          const targetDir = path ?? "";
+          const response = await fetch(`${apiBase}/files-batch`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              type: "media",
+              name: configMedia.name,
+              files,
+              message: `Upload ${files.length} file(s) to ${targetDir} (via Pages CMS)`,
+            }),
+          });
+          const data = await requireApiSuccess<any>(response, "Failed to upload files");
+          return data.data as { commitSha: string; files: { path: string; sha: string; size: number }[] };
+        })();
+
+        await toast.promise(batchPromise, {
+          loading: chunks.length > 1
+            ? `Uploading ${chunk.length} files (${chunkIndex + 1}/${chunks.length})…`
+            : `Uploading ${chunk.length} files…`,
+          success: (result) => {
+            uploadedCount += result.files.length;
+            for (const f of result.files) {
+              const name = f.path.split("/").pop() || f.path;
+              onUpload?.({
+                type: "file",
+                sha: f.sha,
+                name,
+                path: f.path,
+                extension: name.includes(".") ? name.split(".").pop() : undefined,
+                size: f.size,
+                url: undefined,
+              } as FileSaveData);
+            }
+            return `Uploaded ${uploadedCount}/${githubFiles.length} files`;
           },
           error: (error: unknown) => error instanceof Error ? error.message : "Upload failed",
         });
